@@ -7,7 +7,7 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
+  color-scheme: light;
   color: rgba(255, 255, 255, 0.87);
   background-color: #242424;
 
@@ -16,6 +16,35 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+.shadow-canvas {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+}
+
+.shadow-canvas-dropdown {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(229, 231, 235, 0.9);
+  background-color: #ffffff;
+}
+
+/* Ensure dropdowns always stay light and layered correctly */
+.dropdown-fix {
+  background-color: #fff !important;
+  color: #1e293b !important; /* gray-800 */
+  isolation: isolate;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.animate-scaleIn { animation: scaleIn 0.15s ease-out forwards; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.animate-fadeIn { animation: fadeIn 0.2s ease-out forwards; }
+
 
 * {
   transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
@@ -34,6 +63,9 @@ a:hover {
 @layer base {
   body {
     @apply font-lato bg-canvas-grayLight text-gray-900;
+  }
+  button {
+    @apply font-lato rounded-md transition-all duration-150 cursor-pointer;
   }
 }
 

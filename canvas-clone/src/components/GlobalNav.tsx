@@ -12,7 +12,7 @@ export default function GlobalNav() {
   ];
 
   return (
-    <nav className="bg-[#2D3B45] text-white flex flex-col items-center py-8 w-[104px] shrink-0">
+    <nav className="bg-[#2D3B45] text-white flex flex-col items-center py-8 w-[104px] shrink-0 relative">
       {/* User bubble */}
       <div className="w-11 h-11 rounded-full bg-[#3A4C59] flex items-center justify-center text-sm font-semibold mb-10 border border-gray-600">
         NP
@@ -48,8 +48,13 @@ export default function GlobalNav() {
               <Icon className="w-6 h-6" strokeWidth={1.9} />
             </div>
 
-            {/* Label */}
+            {/* Label (below icon) */}
             <span className="leading-none">{label}</span>
+
+            {/* Tooltip with slide-in animation */}
+            <div className="absolute left-[100%] ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-white text-[#2D3B45] text-xs rounded shadow-lg opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 pointer-events-none transition-all duration-200 ease-out whitespace-nowrap z-50">
+              {label}
+            </div>
           </Link>
         );
       })}

@@ -1,70 +1,37 @@
-import { useParams, Link } from "react-router-dom";
+import CourseHeader from "../components/CourseHeader";
+import { useParams } from "react-router-dom";
 import { mockCourses } from "../data/mockData";
 
 export default function CourseHomePage() {
   const { courseId } = useParams();
-  const course = mockCourses.find((c) => c.id === courseId);
+  const course = mockCourses.find((c) => String(c.id) === courseId);
 
-  if (!course) return <div className="p-8">Course not found.</div>;
+  if (!course) return <div className="p-10">Course not found.</div>;
 
   return (
-    <div className="p-10 flex flex-col lg:flex-row gap-10 min-h-screen bg-[#F7F8FA]">
-      {/* Left column */}
-      <div className="flex-1">
-        <h1 className="text-3xl font-semibold text-[#2D3B45]">{course.title}</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          {course.code} • {course.term}
-        </p>
-        <p className="text-xs text-gray-400 mt-1">
-          Last updated {course.updated_at}
-        </p>
+    <div className="flex flex-col w-full bg-canvas-grayLight h-full">
+      <CourseHeader />
 
-        <div className="mt-8 space-y-5 text-[15px] text-gray-700 leading-relaxed">
-          <p className="border-l-4 border-[#008EE2] pl-4">
-            Welcome to <strong>{course.short_name}</strong>. Use the sidebar to access
-            Modules, Pages, and Files. Your students will see this page first.
+      {/* Page Content */}
+      <div className="flex-1 px-16 py-10 overflow-y-auto bg-white">
+        <div className="max-w-4xl">
+          <h2 className="text-lg font-semibold text-canvas-grayDark mb-4">
+            Welcome to {course.title}!
+          </h2>
+          <p className="text-gray-600 leading-relaxed mb-6">
+            This is your course home page. Use the navigation on the left to
+            explore modules, pages, and files. You can also publish or edit
+            course content using the controls above.
           </p>
-          <p>
-            You can later set this homepage to Modules, Syllabus, or a custom
-            Page—just like in Canvas.
+
+          <div className="h-px bg-gray-200 my-8"></div>
+
+          <p className="text-gray-500 text-sm">
+            You can customize this page by adding announcements, resources, or
+            introductory content for students.
           </p>
         </div>
       </div>
-
-      {/* Right column */}
-      <aside className="w-full lg:w-[320px] flex-shrink-0">
-        <div className="border border-gray-200 rounded-lg bg-white shadow-sm">
-          <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-            <span className="font-semibold text-gray-800 text-sm">
-              Course Status
-            </span>
-            <span
-              className={
-                "text-xs font-medium px-2 py-1 rounded " +
-                (course.published
-                  ? "bg-green-100 text-green-700 border border-green-300"
-                  : "bg-gray-200 text-gray-700 border border-gray-300")
-              }
-            >
-              {course.published ? "Published" : "Unpublished"}
-            </span>
-          </div>
-
-          <div className="p-4 text-sm text-gray-700 space-y-2">
-            {["modules", "pages", "files"].map((item) => (
-              <div key={item} className="flex justify-between">
-                <span className="capitalize">{item}</span>
-                <Link
-                  to={`/courses/${course.id}/${item}`}
-                  className="text-[#008EE2] hover:underline"
-                >
-                  View
-                </Link>
-              </div>
-            ))}
-          </div>
-        </div>
-      </aside>
     </div>
   );
 }

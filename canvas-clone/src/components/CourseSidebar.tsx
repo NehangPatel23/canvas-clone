@@ -50,6 +50,11 @@ export default function CourseSidebar() {
               }`}
             />
             {label}
+
+            {/* Tooltip */}
+              <div className="absolute left-[100%] ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-white text-[#2D3B45] text-xs rounded shadow-lg opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 pointer-events-none transition-all duration-200 ease-out whitespace-nowrap z-50">
+                {label}
+              </div>
           </Link>
         );
       })}

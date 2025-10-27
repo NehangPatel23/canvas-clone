@@ -3,6 +3,9 @@ import GlobalNav from "./components/GlobalNav";
 import DashboardPage from "./pages/DashboardPage";
 import CourseLayout from "./layouts/CourseLayout";
 import CourseHomePage from "./pages/CourseHomePage";
+import ModulesPage from "./pages/ModulesPage";
+import PagesPage from "./pages/PagesPage";
+import FilesPage from "./pages/FilesPage";
 
 function MainLayout() {
   return (
@@ -18,23 +21,18 @@ function MainLayout() {
 export default function App() {
   return (
     <Routes>
-      {/* Persistent GlobalNav layout wrapper */}
       <Route element={<MainLayout />}>
         {/* Dashboard */}
         <Route path="/" element={<DashboardPage />} />
 
-        {/* Course route */}
-      <Route
-        path="/courses/:courseId"
-        element={
-          <CourseLayout>
-            <CourseHomePage />
-          </CourseLayout>
-        }
-      />
+        {/* Courses */}
+        <Route path="/courses/:courseId" element={<CourseLayout />}>
+          <Route index element={<CourseHomePage />} />
+          <Route path="modules" element={<ModulesPage />} />
+          <Route path="pages" element={<PagesPage />} />
+          <Route path="files" element={<FilesPage />} />
+        </Route>
       </Route>
     </Routes>
   );
 }
-
-

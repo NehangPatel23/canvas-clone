@@ -1,10 +1,16 @@
+import { Outlet } from "react-router-dom";
 import CourseSidebar from "../components/CourseSidebar";
 
-export default function CourseLayout({ children }: { children: React.ReactNode }) {
+export default function CourseLayout() {
   return (
-    <div className="flex min-h-screen bg-canvas-grayLight">
+    <div className="flex h-screen overflow-hidden bg-canvas-grayLight">
+      {/* Left: Course sidebar */}
       <CourseSidebar />
-      <main className="flex-1 px-12 py-10">{children}</main>
+
+      {/* Right: Main course content area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Outlet />
+      </div>
     </div>
   );
 }

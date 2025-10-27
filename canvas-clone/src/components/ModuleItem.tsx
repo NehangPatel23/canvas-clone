@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -11,6 +11,7 @@ import AddItemModal from "./AddItemModal";
 import EditItemModal from "./EditItemModal";
 import EditModuleModal from "./EditModuleModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
+import CanvasDropdown from "./CanvasDropdown";
 
 interface CourseItem {
   type: string;
@@ -45,83 +46,39 @@ export default function ModuleItem({
 }: ModuleItemProps) {
   const [open, setOpen] = useState(true);
 
-  // modals
+  // Modals
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [showEditItemModal, setShowEditItemModal] = useState(false);
   const [showEditModuleModal, setShowEditModuleModal] = useState(false);
 
-  // confirmations
+  // Confirmations
   const [confirmDeleteModule, setConfirmDeleteModule] = useState(false);
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<null | string>(
     null
   );
 
-  // dropdowns
+  // Dropdowns
   const [showModuleMenu, setShowModuleMenu] = useState(false);
-  const [closingModuleMenu, setClosingModuleMenu] = useState(false);
   const [showItemMenu, setShowItemMenu] = useState<{
     label: string;
     x: number;
     y: number;
   } | null>(null);
-  const [closingItemMenu, setClosingItemMenu] = useState(false);
 
-  // edit item state
+  // Edit state
   const [editItemOriginalLabel, setEditItemOriginalLabel] = useState("");
   const [editItemWorkingLabel, setEditItemWorkingLabel] = useState("");
 
-  // refs
+  // Refs
   const moduleMenuButtonRef = useRef<HTMLDivElement | null>(null);
-  const moduleMenuRef = useRef<HTMLDivElement | null>(null);
-  const itemMenuRef = useRef<HTMLDivElement | null>(null);
 
-  // click outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        showModuleMenu &&
-        moduleMenuRef.current &&
-        !moduleMenuRef.current.contains(e.target as Node) &&
-        moduleMenuButtonRef.current &&
-        !moduleMenuButtonRef.current.contains(e.target as Node)
-      ) {
-        startCloseModuleMenu();
-      }
-
-      if (
-        showItemMenu &&
-        itemMenuRef.current &&
-        !itemMenuRef.current.contains(e.target as Node)
-      ) {
-        startCloseItemMenu();
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showModuleMenu, showItemMenu]);
-
-  // helpers
-  function startCloseModuleMenu() {
-    setClosingModuleMenu(true);
-    setTimeout(() => {
-      setShowModuleMenu(false);
-      setClosingModuleMenu(false);
-    }, 150);
-  }
-
-  function startCloseItemMenu() {
-    setClosingItemMenu(true);
-    setTimeout(() => {
-      setShowItemMenu(null);
-      setClosingItemMenu(false);
-    }, 150);
-  }
-
+  // Add item
   function handleAddItem(newItem: { type: string; label: string }) {
     onAddItem?.(title, newItem);
     setShowAddItemModal(false);
   }
 
+  // Save edited item
   function handleSaveItemEdit(newLabel: string) {
     if (onEditItem && editItemOriginalLabel) {
       onEditItem(title, editItemOriginalLabel, newLabel);
@@ -143,35 +100,7 @@ export default function ModuleItem({
     setConfirmDeleteModule(false);
   }
 
-  // smart dropdown placement
-  function getSmartDropdownPosition(
-    anchorRect: DOMRect | null,
-    fallbackX: number,
-    fallbackY: number
-  ) {
-    const MENU_HEIGHT = 90;
-    const GAP = 6;
-
-    if (anchorRect) {
-      const spaceBelow = window.innerHeight - anchorRect.bottom;
-      const openUp = spaceBelow < MENU_HEIGHT;
-      return {
-        top: openUp
-          ? anchorRect.top + window.scrollY - MENU_HEIGHT - GAP
-          : anchorRect.bottom + window.scrollY + GAP,
-        left: anchorRect.right - 160,
-      };
-    } else {
-      const spaceBelow = window.innerHeight - fallbackY;
-      const openUp = spaceBelow < MENU_HEIGHT;
-      return {
-        top: openUp ? fallbackY - MENU_HEIGHT - GAP : fallbackY + GAP,
-        left: fallbackX - 160,
-      };
-    }
-  }
-
-  // ---------------- RENDER ----------------
+  // ---------- RENDER ----------
   return (
     <div className="border border-gray-200 rounded-lg bg-white shadow-sm transition-all duration-200 ease-in-out relative">
       {/* Header */}
@@ -256,93 +185,44 @@ export default function ModuleItem({
 
       {/* Module Dropdown */}
       {showModuleMenu && (
-        <div
-          ref={moduleMenuRef}
-          className={`fixed dropdown-fix z-[999999] w-40 rounded-md border border-gray-200 bg-white text-gray-800 ${
-            closingModuleMenu ? "animate-fadeOutUp" : "animate-fadeInUp"
-          }`}
-          style={(() => {
-            const rect = moduleMenuButtonRef.current
-              ? moduleMenuButtonRef.current.getBoundingClientRect()
-              : null;
-            const pos = getSmartDropdownPosition(rect, 0, 0);
-            return {
-              top: pos.top,
-              left: pos.left,
-              backgroundColor: "#FFFFFF",
-              boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
-              color: "#2D3B45",
-              isolation: "isolate",
-              zIndex: 999999,
-            };
-          })()}
-        >
-          <button
-            onClick={() => {
-              startCloseModuleMenu();
-              setShowEditModuleModal(true);
-            }}
-            className="block w-full text-left px-4 py-2 text-sm text-gray-700 bg-white hover:bg-gray-100 transition-colors"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => {
-              startCloseModuleMenu();
-              setConfirmDeleteModule(true);
-            }}
-            className="block w-full text-left px-4 py-2 text-sm text-red-600 bg-white hover:bg-red-50 transition-colors"
-          >
-            Delete
-          </button>
-        </div>
+        <CanvasDropdown
+          anchorRef={moduleMenuButtonRef}
+          items={[
+            {
+              label: "Edit",
+              onClick: () => setShowEditModuleModal(true),
+            },
+            {
+              label: "Delete",
+              onClick: () => setConfirmDeleteModule(true),
+              variant: "danger",
+            },
+          ]}
+          onClose={() => setShowModuleMenu(false)}
+        />
       )}
 
       {/* Item Dropdown */}
       {showItemMenu && (
-        <div
-          ref={itemMenuRef}
-          className={`fixed dropdown-fix z-[999999] w-40 rounded-md border border-gray-200 bg-white text-gray-800 ${
-            closingItemMenu ? "animate-fadeOutUp" : "animate-fadeInUp"
-          }`}
-          style={(() => {
-            const pos = getSmartDropdownPosition(
-              null,
-              showItemMenu.x,
-              showItemMenu.y
-            );
-            return {
-              top: pos.top,
-              left: pos.left,
-              backgroundColor: "#FFFFFF",
-              boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
-              color: "#2D3B45",
-              isolation: "isolate",
-              zIndex: 999999,
-            };
-          })()}
-        >
-          <button
-            onClick={() => {
-              startCloseItemMenu();
-              setEditItemOriginalLabel(showItemMenu.label);
-              setEditItemWorkingLabel(showItemMenu.label);
-              setShowEditItemModal(true);
-            }}
-            className="block w-full text-left px-4 py-2 text-sm text-gray-700 bg-white hover:bg-gray-100 transition-colors"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => {
-              startCloseItemMenu();
-              setConfirmDeleteItem(showItemMenu.label);
-            }}
-            className="block w-full text-left px-4 py-2 text-sm text-red-600 bg-white hover:bg-red-50 transition-colors"
-          >
-            Delete
-          </button>
-        </div>
+        <CanvasDropdown
+          position={{ x: showItemMenu.x, y: showItemMenu.y }}
+          items={[
+            {
+              label: "Edit",
+              onClick: () => {
+                setEditItemOriginalLabel(showItemMenu.label);
+                setEditItemWorkingLabel(showItemMenu.label);
+                setShowEditItemModal(true);
+              },
+            },
+            {
+              label: "Delete",
+              onClick: () => setConfirmDeleteItem(showItemMenu.label),
+              variant: "danger",
+            },
+          ]}
+          onClose={() => setShowItemMenu(null)}
+        />
       )}
 
       {/* Modals */}

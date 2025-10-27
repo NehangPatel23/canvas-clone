@@ -21,6 +21,7 @@ interface CourseItem {
 interface ModuleItemProps {
   title: string;
   items: ReadonlyArray<CourseItem>;
+  fadeOut?: boolean;
   onAddItem?: (
     moduleTitle: string,
     newItem: { type: string; label: string }

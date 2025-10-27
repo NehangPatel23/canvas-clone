@@ -17,6 +17,10 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+* {
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
 a {
   font-weight: 500;
   color: #646cff;
@@ -27,12 +31,10 @@ a:hover {
   color: #535bf2;
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+@layer base {
+  body {
+    @apply font-lato bg-canvas-grayLight text-gray-900;
+  }
 }
 
 h1 {

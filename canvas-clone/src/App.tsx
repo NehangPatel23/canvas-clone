@@ -1,22 +1,40 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Outlet } from "react-router-dom";
 import GlobalNav from "./components/GlobalNav";
 import DashboardPage from "./pages/DashboardPage";
+import CourseLayout from "./layouts/CourseLayout";
+import CourseHomePage from "./pages/CourseHomePage";
+
+function MainLayout() {
+  return (
+    <div className="flex min-h-screen bg-canvas-grayLight text-gray-900">
+      <GlobalNav />
+      <main className="flex-1 min-w-0">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
 
 export default function App() {
   return (
     <Routes>
+      {/* Persistent GlobalNav layout wrapper */}
+      <Route element={<MainLayout />}>
+        {/* Dashboard */}
+        <Route path="/" element={<DashboardPage />} />
+
+        {/* Course route */}
       <Route
-        path="/"
+        path="/courses/:courseId"
         element={
-          <div className="flex min-h-screen bg-white text-gray-900">
-            <GlobalNav />
-            <div className="flex-1">
-              <DashboardPage />
-            </div>
-          </div>
+          <CourseLayout>
+            <CourseHomePage />
+          </CourseLayout>
         }
       />
-      {/* More routes (courses/modules/pages) will go here later */}
+      </Route>
     </Routes>
   );
 }
+
+

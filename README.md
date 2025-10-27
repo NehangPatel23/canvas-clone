@@ -55,7 +55,7 @@ npm run dev
 
 ### 4. Open in browser
 
-Navigate to http://localhost:5173
+Navigate to <http://localhost:5173>
 
 <br>
 

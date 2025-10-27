@@ -1,24 +1,58 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { Home, BookOpen, Calendar, Mail } from "lucide-react";
 
 export default function GlobalNav() {
+  const location = useLocation();
+
+  const navItems = [
+    { label: "Dashboard", icon: Home, path: "/" },
+    { label: "Courses", icon: BookOpen, path: "/courses" },
+    { label: "Calendar", icon: Calendar },
+    { label: "Inbox", icon: Mail },
+  ];
+
   return (
-    <nav className="bg-gray-900 text-white flex flex-col items-center py-4 w-[85px] shrink-0">
-      <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-sm font-semibold mb-6">
+    <nav className="bg-[#2D3B45] text-white flex flex-col items-center py-8 w-[104px] shrink-0">
+      {/* User bubble */}
+      <div className="w-11 h-11 rounded-full bg-[#3A4C59] flex items-center justify-center text-sm font-semibold mb-10 border border-gray-600">
         NP
       </div>
 
-      <Link
-        to="/"
-        className="flex flex-col items-center py-3 text-xs hover:text-blue-400"
-      >
-        <span>🏠</span>
-        <span>Dashboard</span>
-      </Link>
+      {/* Nav items */}
+      {navItems.map(({ label, icon: Icon, path }) => {
+        const isActive = path && location.pathname === path;
 
-      <button className="flex flex-col items-center py-3 text-xs text-gray-400">
-        <span>📚</span>
-        <span>Courses</span>
-      </button>
+        return (
+          <Link
+            key={label}
+            to={path || "#"}
+            className={`group relative flex flex-col items-center py-4 text-[13px] font-medium w-full transition-all ${
+              isActive ? "text-[#008EE2]" : "text-gray-300 hover:text-white"
+            }`}
+          >
+            {/* Active blue bar */}
+            <div
+              className={`absolute left-0 top-0 h-full w-[3px] rounded-r-md transition-all ${
+                isActive
+                  ? "bg-[#008EE2] opacity-100"
+                  : "opacity-0 group-hover:opacity-40 group-hover:bg-[#008EE2]"
+              }`}
+            />
+
+            {/* Icon */}
+            <div
+              className={`w-11 h-11 rounded-md flex items-center justify-center mb-2 transition-colors ${
+                isActive ? "bg-[#FFFFFF1A]" : "bg-[#3A4C59] group-hover:bg-[#465B6A]"
+              }`}
+            >
+              <Icon className="w-6 h-6" strokeWidth={1.9} />
+            </div>
+
+            {/* Label */}
+            <span className="leading-none">{label}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }

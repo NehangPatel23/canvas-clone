@@ -1,4 +1,4 @@
-import { SpeedInsights } from "@vercel/speed-insights/next"
+import { SpeedInsights } from "@vercel/speed-insights/react"
 import { Routes, Route, Outlet } from "react-router-dom";
 import GlobalNav from "./components/GlobalNav";
 import DashboardPage from "./pages/DashboardPage";

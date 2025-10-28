@@ -1,3 +1,4 @@
+import { SpeedInsights } from "@vercel/speed-insights/next"
 import { Routes, Route, Outlet } from "react-router-dom";
 import GlobalNav from "./components/GlobalNav";
 import DashboardPage from "./pages/DashboardPage";
@@ -21,6 +22,7 @@ function MainLayout() {
 export default function App() {
   return (
     <Routes>
+      <SpeedInsights />
       <Route element={<MainLayout />}>
         {/* Dashboard */}
         <Route path="/" element={<DashboardPage />} />

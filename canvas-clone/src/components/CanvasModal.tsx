@@ -1,57 +1,71 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 
 interface CanvasModalProps {
-  title?: string;
-  children: ReactNode;
+  title: string;
+  children: React.ReactNode;
   onClose: () => void;
-  widthClass?: string; // e.g., "max-w-md", "max-w-lg"
+  size?: "sm" | "md" | "lg"; // adaptive sizing
 }
 
 export default function CanvasModal({
   title,
   children,
   onClose,
-  widthClass = "max-w-md",
+  size = "sm",
 }: CanvasModalProps) {
-  const [closing, setClosing] = useState(false);
-  const backdropRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
 
-  // Fade-out close
-  function handleClose() {
-    setClosing(true);
-    setTimeout(onClose, 200);
-  }
-
-  // Close on Esc or outside-click
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && handleClose();
-    const onClick = (e: MouseEvent) => {
-      if (e.target === backdropRef.current) handleClose();
-    };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onClick);
+    // Trigger animation after short delay
+    const timer = setTimeout(() => setVisible(true), 10);
+    document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onClick);
+      clearTimeout(timer);
+      document.body.style.overflow = "auto";
     };
   }, []);
 
+  const handleClose = () => {
+    setVisible(false);
+    setTimeout(() => onClose(), 200);
+  };
+
+  // Adaptive width classes
+  const sizeClasses = {
+    sm: "w-[420px] max-w-[92vw]",
+    md: "w-[520px] max-w-[95vw]",
+    lg: "w-[640px] max-w-[95vw]",
+  }[size];
+
   return (
     <div
-      ref={backdropRef}
-      className={`fixed inset-0 z-[100000] flex items-center justify-center bg-black/40 transition-opacity duration-200 ${
-        closing ? "animate-fadeOut" : "animate-fadeIn"
+      className={`fixed inset-0 flex items-center justify-center z-[999] transition-colors duration-200 ${
+        visible ? "bg-black/30" : "bg-black/0"
       }`}
+      onClick={handleClose}
     >
       <div
-        className={`bg-white rounded-lg shadow-xl p-6 w-full ${widthClass} mx-4 transform transition-all ${
-          closing ? "animate-scaleOut" : "animate-scaleIn"
+        onClick={(e) => e.stopPropagation()}
+        className={`relative bg-white rounded-lg shadow-xl ${sizeClasses} p-6 transform transition-all duration-200 ease-out ${
+          visible
+            ? "scale-100 opacity-100 translate-y-0"
+            : "scale-95 opacity-0 translate-y-1"
         }`}
       >
-        {title && (
-          <h2 className="text-xl font-semibold text-[#2D3B45] mb-4">{title}</h2>
-        )}
-        {children}
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-semibold text-[#2D3B45]">{title}</h2>
+          <button
+            onClick={handleClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div>{children}</div>
       </div>
     </div>
   );

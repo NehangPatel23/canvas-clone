@@ -3,23 +3,29 @@ import CanvasModal from "./CanvasModal";
 
 interface AddItemModalProps {
   onClose: () => void;
-  onAdd: (item: { type: string; label: string }) => void;
+  onAdd: (item: { type: string; label: string; url?: string }) => void;
 }
 
 export default function AddItemModal({ onClose, onAdd }: AddItemModalProps) {
   const [label, setLabel] = useState("");
   const [type, setType] = useState("page");
+  const [url, setUrl] = useState("");
 
   function handleSubmit() {
     if (!label.trim()) return;
-    onAdd({ type, label });
+
+    if (type === "link" && !url.trim()) {
+      alert("Please enter a valid URL for the link item.");
+      return;
+    }
+
+    onAdd({ type, label, url: type === "link" ? url.trim() : undefined });
     onClose();
   }
 
   return (
     <CanvasModal title="Add New Item" onClose={onClose}>
       <div className="space-y-5">
-        {/* Label Input */}
         <div>
           <label className="block text-sm font-medium text-[#2D3B45] mb-1">
             Item Name
@@ -33,7 +39,6 @@ export default function AddItemModal({ onClose, onAdd }: AddItemModalProps) {
           />
         </div>
 
-        {/* Type Selector */}
         <div>
           <label className="block text-sm font-medium text-[#2D3B45] mb-1">
             Type
@@ -49,8 +54,22 @@ export default function AddItemModal({ onClose, onAdd }: AddItemModalProps) {
           </select>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex justify-end gap-3">
+        {type === "link" && (
+          <div>
+            <label className="block text-sm font-medium text-[#2D3B45] mb-1">
+              URL
+            </label>
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-[#2D3B45] placeholder-gray-400 focus:ring-1 focus:ring-[#008EE2] focus:border-[#008EE2] outline-none"
+              placeholder="https://example.com"
+            />
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3 pt-2">
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium rounded-md border border-gray-300 text-[#2D3B45] bg-white hover:bg-gray-100 transition-all"

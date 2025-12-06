@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import CourseHeader from "../components/CourseHeader";
 import ModuleItem from "../components/ModuleItem";
 import AddModuleModal from "../components/AddModuleModal";
@@ -28,13 +29,20 @@ type Item = {
   type: string;
   label: string;
   url?: string;
+  pageId?: string; // 🔒 stable page identifier
 };
+
 type ModuleT = { title: string; items: Item[] };
 
 type IdModule = `module:${string}`;
 type IdItem = `item:${string}:${string}`;
 type IdContainer = `container:${string}`;
 type AnyId = IdModule | IdItem | IdContainer;
+
+const MODULES_STORAGE_KEY = "canvasClone:modules";
+
+const slugifyLabel = (label: string) =>
+  encodeURIComponent(label.toLowerCase().trim().replace(/\s+/g, "-"));
 
 const modId = (title: string): IdModule => `module:${title}`;
 const itemId = (moduleTitle: string, label: string): IdItem =>
@@ -43,21 +51,62 @@ const containerId = (moduleTitle: string): IdContainer =>
   `container:${moduleTitle}`;
 
 function parseId(id: string) {
-  if (id.startsWith("module:")) return { kind: "module" as const, title: id.slice(7) };
+  if (id.startsWith("module:"))
+    return { kind: "module" as const, title: id.slice(7) };
   if (id.startsWith("item:")) {
     const rest = id.slice(5);
     const i = rest.indexOf(":");
-    return { kind: "item" as const, moduleTitle: rest.slice(0, i), label: rest.slice(i + 1) };
+    return {
+      kind: "item" as const,
+      moduleTitle: rest.slice(0, i),
+      label: rest.slice(i + 1),
+    };
   }
-  if (id.startsWith("container:")) return { kind: "container" as const, moduleTitle: id.slice(10) };
+  if (id.startsWith("container:"))
+    return { kind: "container" as const, moduleTitle: id.slice(10) };
   return { kind: "unknown" as const };
 }
 
-const restrictToVertical: Modifier = ({ transform }) => ({ ...transform, x: 0 });
+const restrictToVertical: Modifier = ({ transform }) => ({
+  ...transform,
+  x: 0,
+});
 
 const transitionStyle = {
-  transition: "transform 250ms cubic-bezier(0.22, 1, 0.36, 1), opacity 150ms ease",
+  transition:
+    "transform 250ms cubic-bezier(0.22, 1, 0.36, 1), opacity 150ms ease",
 };
+
+// Default modules (used on very first load)
+const DEFAULT_MODULES: ModuleT[] = [
+  {
+    title: "Week 1 – Introduction",
+    items: [
+      {
+        type: "page",
+        label: "Course Overview",
+        pageId: "course-overview", // 👈 stable ID
+      },
+      { type: "file", label: "Syllabus.pdf" },
+    ],
+  },
+  {
+    title: "Week 2 – Algorithms and Complexity",
+    items: [
+      {
+        type: "page",
+        label: "Lecture Slides",
+        pageId: "lecture-slides",
+      },
+      { type: "file", label: "ExampleProblems.docx" },
+      {
+        type: "link",
+        label: "Supplementary Reading",
+        url: "https://example.com",
+      },
+    ],
+  },
+];
 
 function DraggableModuleShell(props: {
   id: IdModule;
@@ -66,7 +115,11 @@ function DraggableModuleShell(props: {
   fadeOut: boolean;
   onAddItem: (moduleTitle: string, newItem: Item) => void;
   onEditItem: (moduleTitle: string, oldLabel: string, newLabel: string) => void;
-  onEditItemFull: (moduleTitle: string, oldLabel: string, updatedItem: Item) => void;
+  onEditItemFull: (
+    moduleTitle: string,
+    oldLabel: string,
+    updatedItem: Item
+  ) => void;
   onDeleteItem: (moduleTitle: string, labelToRemove: string) => void;
   onEditModule: (oldTitle: string, newTitle: string) => void;
   onDeleteModule: (titleToDelete: string) => void;
@@ -75,6 +128,8 @@ function DraggableModuleShell(props: {
 
   dropIndex: number | null;
   moduleIsHighlighted: boolean;
+
+  onOpenPageItem: (label: string, pageId?: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useSortable({ id: props.id });
@@ -94,7 +149,9 @@ function DraggableModuleShell(props: {
         isDragging
           ? "translate-y-2 shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-2 ring-blue-300/40 bg-white/95 backdrop-blur-sm duration-200"
           : "shadow-sm hover:shadow-md hover:shadow-gray-300/40 duration-100"
-      } ${props.moduleIsHighlighted ? "ring-2 ring-blue-400/60 bg-blue-50/60" : ""}`}
+      } ${
+        props.moduleIsHighlighted ? "ring-2 ring-blue-400/60 bg-blue-50/60" : ""
+      }`}
     >
       <div
         {...attributes}
@@ -119,6 +176,7 @@ function DraggableModuleShell(props: {
           getContainerId={props.getContainerId}
           dropIndex={props.dropIndex}
           moduleIsHighlighted={props.moduleIsHighlighted}
+          onOpenPageItem={props.onOpenPageItem}
         />
       </div>
     </div>
@@ -126,42 +184,73 @@ function DraggableModuleShell(props: {
 }
 
 export default function ModulesPage() {
-  const [modules, setModules] = useState<ModuleT[]>([
-    {
-      title: "Week 1 – Introduction",
-      items: [
-        { type: "page", label: "Course Overview" },
-        { type: "file", label: "Syllabus.pdf" },
-      ],
-    },
-    {
-      title: "Week 2 – Algorithms and Complexity",
-      items: [
-        { type: "page", label: "Lecture Slides" },
-        { type: "file", label: "ExampleProblems.docx" },
-        { type: "link", label: "Supplementary Reading", url: "https://example.com" },
-      ],
-    },
-  ]);
+  const navigate = useNavigate();
+  const { courseId } = useParams();
+
+  // 🔁 Initialize modules from localStorage (if present), else from defaults.
+  const [modules, setModules] = useState<ModuleT[]>(() => {
+    try {
+      const raw = window.localStorage.getItem(MODULES_STORAGE_KEY);
+      if (!raw) return DEFAULT_MODULES;
+
+      const parsed = JSON.parse(raw) as ModuleT[];
+
+      // Ensure any page items have a stable pageId
+      return parsed.map((m) => ({
+        ...m,
+        items: m.items.map((it) =>
+          it.type === "page"
+            ? { ...it, pageId: it.pageId ?? slugifyLabel(it.label) }
+            : it
+        ),
+      }));
+    } catch {
+      return DEFAULT_MODULES;
+    }
+  });
 
   const [fadingModules, setFadingModules] = useState<Set<string>>(new Set());
   const [showAddModuleModal, setShowAddModuleModal] = useState(false);
   const [activeId, setActiveId] = useState<AnyId | null>(null);
-  const [dropIndicator, setDropIndicator] = useState<{ moduleTitle: string | null; index: number | null }>({
+  const [dropIndicator, setDropIndicator] = useState<{
+    moduleTitle: string | null;
+    index: number | null;
+  }>({
     moduleTitle: null,
     index: null,
   });
-  const [highlightModuleTitle, setHighlightModuleTitle] = useState<string | null>(null);
+  const [highlightModuleTitle, setHighlightModuleTitle] = useState<
+    string | null
+  >(null);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  // 💾 Persist modules whenever they change
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MODULES_STORAGE_KEY, JSON.stringify(modules));
+    } catch (err) {
+      console.error("Failed to save modules to localStorage", err);
+    }
+  }, [modules]);
 
   const handleAddModule = (newModuleTitle: string) => {
     setModules((prev) => [...prev, { title: newModuleTitle, items: [] }]);
     setShowAddModuleModal(false);
   };
 
+  const handleOpenPageItem = (label: string, pageId?: string) => {
+    if (!courseId) return;
+    const finalPageId = pageId ?? slugifyLabel(label);
+    navigate(`/courses/${courseId}/pages/${finalPageId}`);
+  };
+
   const handleEditModule = (oldTitle: string, newTitle: string) => {
-    setModules((prev) => prev.map((m) => (m.title === oldTitle ? { ...m, title: newTitle } : m)));
+    setModules((prev) =>
+      prev.map((m) => (m.title === oldTitle ? { ...m, title: newTitle } : m))
+    );
   };
 
   const handleDeleteModule = (title: string) => {
@@ -177,12 +266,23 @@ export default function ModulesPage() {
   };
 
   const handleAddItemToModule = (moduleTitle: string, newItem: Item) => {
+    const itemToAdd: Item =
+      newItem.type === "page"
+        ? { ...newItem, pageId: slugifyLabel(newItem.label) }
+        : newItem;
+
     setModules((prev) =>
-      prev.map((m) => (m.title === moduleTitle ? { ...m, items: [...m.items, newItem] } : m))
+      prev.map((m) =>
+        m.title === moduleTitle ? { ...m, items: [...m.items, itemToAdd] } : m
+      )
     );
   };
 
-  const handleEditItemInModule = (moduleTitle: string, oldLabel: string, newLabel: string) => {
+  const handleEditItemInModule = (
+    moduleTitle: string,
+    oldLabel: string,
+    newLabel: string
+  ) => {
     setModules((prev) =>
       prev.map((m) =>
         m.title === moduleTitle
@@ -197,7 +297,6 @@ export default function ModulesPage() {
     );
   };
 
-  // ✅ New — handles label + URL edits
   const handleEditItemInModuleFull = (
     moduleTitle: string,
     oldLabel: string,
@@ -208,11 +307,30 @@ export default function ModulesPage() {
         m.title === moduleTitle
           ? {
               ...m,
-              items: m.items.map((it) =>
-                it.label === oldLabel
-                  ? { ...it, label: updatedItem.label, url: updatedItem.url }
-                  : it
-              ),
+              items: m.items.map((it) => {
+                if (it.label !== oldLabel) return it;
+
+                // Preserve existing pageId for page items
+                let next: Item = {
+                  ...it,
+                  label: updatedItem.label,
+                  type: updatedItem.type,
+                  url: updatedItem.url,
+                };
+
+                if (it.type === "page" && updatedItem.type === "page") {
+                  // keep old pageId
+                  next.pageId = it.pageId ?? slugifyLabel(it.label);
+                } else if (it.type !== "page" && updatedItem.type === "page") {
+                  // newly became a page
+                  next.pageId = slugifyLabel(updatedItem.label);
+                } else if (updatedItem.type !== "page") {
+                  // not a page anymore
+                  delete next.pageId;
+                }
+
+                return next;
+              }),
             }
           : m
       )
@@ -234,10 +352,14 @@ export default function ModulesPage() {
     const p = parseId(String(activeId));
     if (p.kind === "module") {
       const mod = modules.find((m) => m.title === p.title);
-      return mod ? { type: "module" as const, title: mod.title, count: mod.items.length } : null;
+      return mod
+        ? { type: "module" as const, title: mod.title, count: mod.items.length }
+        : null;
     }
     if (p.kind === "item") {
-      const it = modules.find((m) => m.title === p.moduleTitle)?.items.find((i) => i.label === p.label);
+      const it = modules
+        .find((m) => m.title === p.moduleTitle)
+        ?.items.find((i) => i.label === p.label);
       return it ? { type: "item" as const, label: it.label } : null;
     }
     return null;
@@ -275,7 +397,9 @@ export default function ModulesPage() {
         const overModule = modules.find((m) => m.title === modTitle);
         if (!overModule) return;
 
-        const targetIndex = overModule.items.findIndex((it) => it.label === b.label);
+        const targetIndex = overModule.items.findIndex(
+          (it) => it.label === b.label
+        );
         const finalIndex = insertBefore ? targetIndex : targetIndex + 1;
 
         setDropIndicator({ moduleTitle: modTitle, index: finalIndex });
@@ -285,7 +409,8 @@ export default function ModulesPage() {
       if (b.kind === "container") {
         setDropIndicator({
           moduleTitle: b.moduleTitle,
-          index: modules.find((m) => m.title === b.moduleTitle)?.items.length ?? 0,
+          index:
+            modules.find((m) => m.title === b.moduleTitle)?.items.length ?? 0,
         });
       }
     }
@@ -362,8 +487,12 @@ export default function ModulesPage() {
 
       <div className="flex-1 px-20 py-10 overflow-y-auto bg-white relative">
         <div className="max-w-4xl space-y-6">
-          <h2 className="text-2xl font-semibold text-canvas-grayDark">Modules</h2>
-          <p className="text-gray-600">Organize your course content into modules.</p>
+          <h2 className="text-2xl font-semibold text-canvas-grayDark">
+            Modules
+          </h2>
+          <p className="text-gray-600">
+            Organize your course content into modules.
+          </p>
           <div className="h-px bg-gray-200 my-6" />
 
           <div className="flex items-center justify-between pb-3 border-b border-gray-200">
@@ -408,9 +537,12 @@ export default function ModulesPage() {
                   getItemId={(label) => itemId(mod.title, label)}
                   getContainerId={() => containerId(mod.title)}
                   dropIndex={
-                    dropIndicator.moduleTitle === mod.title ? dropIndicator.index : null
+                    dropIndicator.moduleTitle === mod.title
+                      ? dropIndicator.index
+                      : null
                   }
                   moduleIsHighlighted={highlightModuleTitle === mod.title}
+                  onOpenPageItem={handleOpenPageItem}
                 />
               ))}
             </SortableContext>

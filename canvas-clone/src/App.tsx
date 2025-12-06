@@ -6,6 +6,8 @@ import CourseHomePage from "./pages/CourseHomePage";
 import ModulesPage from "./pages/ModulesPage";
 import PagesPage from "./pages/PagesPage";
 import FilesPage from "./pages/FilesPage";
+import PageEditorPage from "./pages/PageEditorPage";
+
 
 function MainLayout() {
   return (
@@ -30,6 +32,7 @@ export default function App() {
           <Route index element={<CourseHomePage />} />
           <Route path="modules" element={<ModulesPage />} />
           <Route path="pages" element={<PagesPage />} />
+          <Route path="pages/:pageId" element={<PageEditorPage />} />
           <Route path="files" element={<FilesPage />} />
         </Route>
       </Route>

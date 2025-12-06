@@ -19,11 +19,21 @@ export default function ItemModal({
   onClose,
   onSubmit,
 }: ItemModalProps) {
+  const initialType = initialValues?.type || "page";
+
   const [label, setLabel] = useState(initialValues?.label || "");
-  const [type, setType] = useState(initialValues?.type || "page");
-  const [url, setUrl] = useState(initialValues?.url || "");
+  const [type, setType] = useState(initialType);
+  const [url, setUrl] = useState(() => {
+    if (initialValues?.url && initialValues.url.trim() !== "") {
+      return initialValues.url;
+    }
+    if (initialType === "link") {
+      return "https://";
+    }
+    return "";
+  });
   const [showBadge, setShowBadge] = useState(false);
-  const [showUrlInput, setShowUrlInput] = useState(type === "link");
+  const [showUrlInput, setShowUrlInput] = useState(initialType === "link");
 
   // Focus first field
   useEffect(() => {
@@ -31,25 +41,26 @@ export default function ItemModal({
     input?.focus();
   }, []);
 
-  // Prefill https:// for new links
-  useEffect(() => {
-    if (mode === "add" && type === "link" && url.trim() === "") {
-      setUrl("https://");
-    }
-  }, [type, mode]);
-
   // Animate badge
   useEffect(() => {
     if (mode === "edit" && type === "link") {
       const t = setTimeout(() => setShowBadge(true), 60);
       return () => clearTimeout(t);
-    } else setShowBadge(false);
+    } else {
+      setShowBadge(false);
+    }
   }, [mode, type]);
 
-  // Animate URL input
+  // Animate URL input + prefill https:// for link items
   useEffect(() => {
     if (type === "link") {
-      const t = setTimeout(() => setShowUrlInput(true), 80);
+      const t = setTimeout(() => {
+        setShowUrlInput(true);
+        setUrl((prev) => {
+          if (prev && prev.trim() !== "") return prev;
+          return "https://";
+        });
+      }, 80);
       return () => clearTimeout(t);
     } else {
       setShowUrlInput(false);
@@ -71,7 +82,11 @@ export default function ItemModal({
     onClose();
   };
 
-  const titleText = mode === "add" ? "Add New Item" : "Edit Item";
+  const typeDisplayName =
+    type === "page" ? "Page Item" : type === "file" ? "File Item" : "Link Item";
+
+  const titleText =
+    mode === "add" ? `Add ${typeDisplayName}` : `Edit ${typeDisplayName}`;
   const buttonText = mode === "add" ? "Add Item" : "Save Changes";
 
   return (
@@ -115,7 +130,6 @@ export default function ItemModal({
             value={type}
             onChange={(e) => setType(e.target.value)}
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-[#2D3B45] focus:ring-1 focus:ring-[#008EE2] focus:border-[#008EE2] outline-none bg-white"
-            disabled={mode === "edit"} // prevent type change after creation
           >
             <option value="page">Page</option>
             <option value="file">File</option>

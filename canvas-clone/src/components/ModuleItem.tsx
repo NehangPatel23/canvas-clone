@@ -27,6 +27,7 @@ interface CourseItem {
   type: string;
   label: string;
   url?: string;
+  pageId?: string;
 }
 
 interface ModuleItemProps {
@@ -54,6 +55,8 @@ interface ModuleItemProps {
 
   dropIndex: number | null;
   moduleIsHighlighted: boolean;
+
+  onOpenPageItem?: (label: string, pageId?: string) => void;
 }
 
 const transitionStyle = {
@@ -66,10 +69,12 @@ function SortableItemRow({
   item,
   getItemId,
   onOpenItemMenu,
+  onOpenPageItem,
 }: {
   item: CourseItem;
   getItemId: (label: string) => string;
   onOpenItemMenu: (e: React.MouseEvent, label: string) => void;
+  onOpenPageItem?: (label: string, pageId?: string) => void;
 }) {
   const id = getItemId(item.label);
   const { attributes, listeners, setNodeRef, transform, isDragging, isOver } =
@@ -129,7 +134,9 @@ function SortableItemRow({
         {/* ✅ Link with Canvas-style tooltip */}
         {item.type === "link" && item.url ? (
           <a
-            href={item.url.startsWith("http") ? item.url : `https://${item.url}`}
+            href={
+              item.url.startsWith("http") ? item.url : `https://${item.url}`
+            }
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -168,6 +175,14 @@ function SortableItemRow({
               </div>
             </div>
           </a>
+        ) : item.type === "page" && onOpenPageItem ? (
+          <button
+            type="button"
+            onClick={() => onOpenPageItem(item.label, item.pageId)}
+            className="text-left text-gray-700 text-[15px] bg-transparent border-none p-0 focus:outline-none"
+          >
+            {item.label}
+          </button>
         ) : (
           <span className="text-gray-700 text-[15px] select-none">
             {item.label}
@@ -198,6 +213,7 @@ export default function ModuleItem({
   getContainerId,
   dropIndex,
   moduleIsHighlighted,
+  onOpenPageItem,
 }: ModuleItemProps) {
   const [open, setOpen] = useState(true);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
@@ -214,9 +230,8 @@ export default function ModuleItem({
     y: number;
   } | null>(null);
   const [editItemOriginalLabel, setEditItemOriginalLabel] = useState("");
-  const [currentEditingItem, setCurrentEditingItem] = useState<CourseItem | null>(
-    null
-  );
+  const [currentEditingItem, setCurrentEditingItem] =
+    useState<CourseItem | null>(null);
 
   const moduleMenuButtonRef = useRef<HTMLDivElement | null>(null);
   const { setNodeRef: setDropRef, isOver } = useDroppable({
@@ -303,6 +318,7 @@ export default function ModuleItem({
                   setEditItemOriginalLabel(label);
                   setCurrentEditingItem(item);
                 }}
+                onOpenPageItem={onOpenPageItem}
               />
               {dropIndex === idx + 1 && <DropIndicator />}
             </div>

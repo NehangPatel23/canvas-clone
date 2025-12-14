@@ -6,7 +6,6 @@ import AddModuleModal from "../components/AddModuleModal";
 import { Plus, GripVertical } from "lucide-react";
 
 import {
-  loadFilesMeta,
   replaceModuleTitleInAllFiles,
   addModuleRefToFile,
   removeModuleRefFromFile,

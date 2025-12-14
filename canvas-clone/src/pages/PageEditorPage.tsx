@@ -1,11 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type ComponentType } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import CourseHeader from "../components/CourseHeader";
+import EquationModal from "../components/EquationModal";
+import { Editor as TinyMCEEditorRaw } from "@tinymce/tinymce-react";
+import katex from "katex";
+
+const Editor = TinyMCEEditorRaw as unknown as ComponentType<any>;
 
 function unslugPageId(pageId?: string) {
   if (!pageId) return "Untitled Page";
   const decoded = decodeURIComponent(pageId);
-  // "course-overview" → "Course Overview"
   return decoded
     .replace(/-/g, " ")
     .replace(/\s+/g, " ")
@@ -21,9 +25,17 @@ export default function PageEditorPage() {
     courseId && pageId ? `canvasClone:page:${courseId}:${pageId}` : undefined;
 
   const [title, setTitle] = useState(() => unslugPageId(pageId));
-  const [content, setContent] = useState("");
+  const [content, setContent] = useState<string>("");
 
-  // Load saved content (if any) on mount / when courseId/pageId change
+  const [showEquationModal, setShowEquationModal] = useState(false);
+  const [pendingInitialLatex, setPendingInitialLatex] = useState<string>("");
+
+  // If set, the modal is editing an existing equation node; if null, we’re inserting a new one.
+  const editingEquationElRef = useRef<HTMLElement | null>(null);
+
+  const editorRef = useRef<any | null>(null);
+
+  // ---- Load saved page content ----
   useEffect(() => {
     if (!storageKey) return;
     try {
@@ -31,23 +43,16 @@ export default function PageEditorPage() {
       if (!raw) return;
       const parsed = JSON.parse(raw) as { title?: string; content?: string };
 
-      if (parsed.title) {
-        setTitle(parsed.title);
-      }
-      if (typeof parsed.content === "string") {
-        setContent(parsed.content);
-      }
+      if (parsed.title) setTitle(parsed.title);
+      if (typeof parsed.content === "string") setContent(parsed.content);
     } catch (err) {
       console.error("Failed to load page content from storage", err);
     }
   }, [storageKey]);
 
   const handleCancel = () => {
-    if (courseId) {
-      navigate(`/courses/${courseId}/modules`);
-    } else {
-      navigate(-1);
-    }
+    if (courseId) navigate(`/courses/${courseId}/modules`);
+    else navigate(-1);
   };
 
   const handleSave = () => {
@@ -66,6 +71,123 @@ export default function PageEditorPage() {
     }
 
     navigate(`/courses/${courseId}/modules`);
+  };
+
+  // ---- KaTeX render helper for all equations inside TinyMCE ----
+  const renderAllEquations = (editor: any) => {
+    if (!editor || !editor.getBody) return;
+    const body = editor.getBody();
+    if (!body) return;
+
+    const nodes = body.querySelectorAll(
+      ".canvas-equation"
+    ) as NodeListOf<HTMLElement>;
+
+    nodes.forEach((el) => {
+      let latex = el.getAttribute("data-latex") || el.textContent || "";
+      latex = latex.trim();
+      if (!latex) return;
+
+      // Normalize legacy $$...$$ content
+      if (!el.getAttribute("data-latex")) {
+        latex = latex.replace(/^\$\$/, "").replace(/\$\$$/, "").trim();
+        el.setAttribute("data-latex", latex);
+      }
+
+      // Prevent caret from living inside the KaTeX DOM
+      el.setAttribute("contenteditable", "false");
+
+      // Make it feel selectable/clickable like Canvas
+      el.classList.add("canvas-equation");
+      el.setAttribute("data-mce-selected", "0");
+
+      try {
+        katex.render(latex, el, {
+          throwOnError: false,
+          displayMode: false, // inline math
+        });
+      } catch {
+        el.textContent = latex;
+      }
+    });
+  };
+
+  // ---- Open modal to insert new equation ----
+  const openEquationInsert = () => {
+    editingEquationElRef.current = null;
+
+    const selectedText =
+      editorRef.current?.selection?.getContent?.({ format: "text" }) ?? "";
+
+    setPendingInitialLatex(selectedText || "");
+    setShowEquationModal(true);
+  };
+
+  // ---- Open modal to edit existing equation ----
+  const openEquationEdit = (equationEl: HTMLElement) => {
+    editingEquationElRef.current = equationEl;
+
+    const latex = (equationEl.getAttribute("data-latex") || "").trim();
+    setPendingInitialLatex(latex);
+    setShowEquationModal(true);
+  };
+
+  const insertNewEquation = (latex: string) => {
+    if (!editorRef.current) return;
+
+    const encoded = latex
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    const html = `<span class="canvas-equation" data-latex="${encoded}"></span>&nbsp;`;
+
+    editorRef.current.insertContent(html);
+    renderAllEquations(editorRef.current);
+    setContent(editorRef.current.getContent());
+  };
+
+  const updateExistingEquation = (equationEl: HTMLElement, latex: string) => {
+    const encoded = latex
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    equationEl.setAttribute("data-latex", encoded);
+    // Re-render just this element
+    try {
+      katex.render(latex, equationEl, {
+        throwOnError: false,
+        displayMode: false,
+      });
+    } catch {
+      equationEl.textContent = latex;
+    }
+
+    // Ensure it remains non-editable
+    equationEl.setAttribute("contenteditable", "false");
+
+    // Sync React state from editor HTML
+    if (editorRef.current) {
+      setContent(editorRef.current.getContent());
+    }
+  };
+
+  // ---- Modal submission handles insert OR edit ----
+  const handleEquationModalInsert = (latex: string) => {
+    const editingEl = editingEquationElRef.current;
+
+    if (editingEl) {
+      updateExistingEquation(editingEl, latex);
+    } else {
+      insertNewEquation(latex);
+    }
+
+    // reset
+    editingEquationElRef.current = null;
+    setShowEquationModal(false);
   };
 
   return (
@@ -103,18 +225,132 @@ export default function PageEditorPage() {
           {/* Editor body */}
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
             <div className="border-b border-gray-200 px-4 py-2 text-sm text-gray-500">
-              Rich Content Editor (toolbar placeholder)
+              Rich Content Editor
             </div>
 
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="w-full min-h-[400px] px-4 py-3 text-[15px] leading-relaxed text-gray-800 resize-vertical focus:outline-none"
-              placeholder="Start typing your page content here..."
-            />
+            <div className="px-4 py-4">
+              <Editor
+                apiKey="f4ktyvw5hm8w3xm00gwdjztgrl93k06t3vt9wng4uc08m87s"
+                value={content}
+                onInit={(_evt: any, editor: any) => {
+                  editorRef.current = editor;
+                  renderAllEquations(editor);
+                }}
+                onEditorChange={(value: string) => setContent(value)}
+                init={{
+                  height: 500,
+                  menubar: true,
+                  plugins:
+                    "preview searchreplace autolink directionality visualblocks visualchars fullscreen image link media template codesample table charmap hr pagebreak nonbreaking anchor lists wordcount help",
+                  toolbar:
+                    "undo redo | styleselect | " +
+                    "bold italic underline strikethrough | " +
+                    "alignleft aligncenter alignright alignjustify | " +
+                    "bullist numlist outdent indent | " +
+                    "link image media | " +
+                    "forecolor backcolor removeformat | " +
+                    "codesample equationEditor | " +
+                    "fullscreen preview | help",
+                  content_css: [
+                    "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css",
+                  ],
+                  content_style:
+                    "body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size:14px; } " +
+                    ".canvas-equation { display:inline-block; margin:0 2px; vertical-align:middle; cursor:pointer; padding:2px 3px; border-radius:4px; } " +
+                    ".canvas-equation:hover { background: rgba(0, 142, 226, 0.10); } " +
+                    ".canvas-equation.is-selected { outline: 2px solid rgba(0, 142, 226, 0.35); outline-offset: 1px; }",
+                  branding: false,
+                  statusbar: true,
+                  setup: (editor: any) => {
+                    const render = () => renderAllEquations(editor);
+
+                    editor.on("SetContent", render);
+
+                    // Toolbar button: insert equation
+                    editor.ui.registry.addButton("equationEditor", {
+                      text: "Equation",
+                      tooltip: "Insert math equation",
+                      onAction: () => openEquationInsert(),
+                    });
+
+                    // Click/Double-click on equation => edit
+                    editor.on("DblClick", (e: any) => {
+                      const target = e?.target as HTMLElement | null;
+                      if (!target) return;
+
+                      const eq = target.closest?.(
+                        ".canvas-equation"
+                      ) as HTMLElement | null;
+                      if (!eq) return;
+
+                      // Prevent TinyMCE weird selection behavior
+                      e.preventDefault?.();
+                      e.stopPropagation?.();
+
+                      openEquationEdit(eq);
+                    });
+
+                    // Optional: show selection highlight on single click
+                    editor.on("Click", (e: any) => {
+                      const body = editor.getBody();
+                      if (!body) return;
+
+                      // clear old selection highlight
+                      body
+                        .querySelectorAll(".canvas-equation.is-selected")
+                        .forEach((n: { classList: { remove: (arg0: string) => any; }; }) => n.classList.remove("is-selected"));
+
+                      const target = e?.target as HTMLElement | null;
+                      if (!target) return;
+                      const eq = target.closest?.(
+                        ".canvas-equation"
+                      ) as HTMLElement | null;
+                      if (eq) {
+                        eq.classList.add("is-selected");
+                      }
+                    });
+
+                    // Context menu option (right click) - nice UX
+                    editor.ui.registry.addContextMenu("equationMenu", {
+                      update: (element: HTMLElement) => {
+                        const eq = element.closest?.(".canvas-equation");
+                        if (!eq) return "";
+                        return "editEquation";
+                      },
+                    });
+
+                    editor.ui.registry.addMenuItem("editEquation", {
+                      text: "Edit equation",
+                      onAction: () => {
+                        const node = editor.selection.getNode() as HTMLElement;
+                        const eq = node?.closest?.(
+                          ".canvas-equation"
+                        ) as HTMLElement | null;
+                        if (eq) openEquationEdit(eq);
+                      },
+                    });
+                  },
+                }}
+              />
+
+              <p className="mt-2 text-xs text-gray-500">
+                Double-click an equation to edit it. Right-click also provides
+                an <strong>Edit equation</strong> option.
+              </p>
+            </div>
           </div>
         </div>
       </div>
+
+      <EquationModal
+        isOpen={showEquationModal}
+        initialLatex={pendingInitialLatex}
+        onInsert={handleEquationModalInsert}
+        onClose={() => {
+          editingEquationElRef.current = null;
+          setShowEquationModal(false);
+        }}
+      />
     </div>
   );
 }

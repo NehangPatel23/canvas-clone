@@ -7,7 +7,7 @@ import ModulesPage from "./pages/ModulesPage";
 import PagesPage from "./pages/PagesPage";
 import FilesPage from "./pages/FilesPage";
 import PageEditorPage from "./pages/PageEditorPage";
-
+import FilePreviewPage from "./pages/FilePreviewPage";
 
 function MainLayout() {
   return (
@@ -24,16 +24,15 @@ export default function App() {
   return (
     <Routes>
       <Route element={<MainLayout />}>
-        {/* Dashboard */}
         <Route path="/" element={<DashboardPage />} />
 
-        {/* Courses */}
         <Route path="/courses/:courseId" element={<CourseLayout />}>
           <Route index element={<CourseHomePage />} />
           <Route path="modules" element={<ModulesPage />} />
           <Route path="pages" element={<PagesPage />} />
           <Route path="pages/:pageId" element={<PageEditorPage />} />
           <Route path="files" element={<FilesPage />} />
+          <Route path="files/:fileId" element={<FilePreviewPage />} />
         </Route>
       </Route>
     </Routes>

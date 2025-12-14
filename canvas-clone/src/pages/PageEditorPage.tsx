@@ -35,6 +35,9 @@ export default function PageEditorPage() {
 
   const editorRef = useRef<any | null>(null);
 
+  // NEW: store selection/caret position before modal steals focus
+  const selectionBookmarkRef = useRef<any | null>(null);
+
   // ---- Load saved page content ----
   useEffect(() => {
     if (!storageKey) return;
@@ -112,9 +115,41 @@ export default function PageEditorPage() {
     });
   };
 
+  // ---- Selection bookmark helpers (critical for insert working reliably) ----
+  const saveSelectionBookmark = () => {
+    const editor = editorRef.current;
+    if (!editor?.selection?.getBookmark) {
+      selectionBookmarkRef.current = null;
+      return;
+    }
+    try {
+      // args: (type, normalized) - (2, true) works well for modal focus loss
+      selectionBookmarkRef.current = editor.selection.getBookmark(2, true);
+    } catch {
+      selectionBookmarkRef.current = null;
+    }
+  };
+
+  const restoreSelectionBookmark = () => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    try {
+      editor.focus();
+      if (selectionBookmarkRef.current && editor.selection?.moveToBookmark) {
+        editor.selection.moveToBookmark(selectionBookmarkRef.current);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   // ---- Open modal to insert new equation ----
   const openEquationInsert = () => {
     editingEquationElRef.current = null;
+
+    // NEW: save caret position BEFORE modal steals focus
+    saveSelectionBookmark();
 
     const selectedText =
       editorRef.current?.selection?.getContent?.({ format: "text" }) ?? "";
@@ -127,13 +162,20 @@ export default function PageEditorPage() {
   const openEquationEdit = (equationEl: HTMLElement) => {
     editingEquationElRef.current = equationEl;
 
+    // NEW: save caret position BEFORE modal steals focus
+    saveSelectionBookmark();
+
     const latex = (equationEl.getAttribute("data-latex") || "").trim();
     setPendingInitialLatex(latex);
     setShowEquationModal(true);
   };
 
   const insertNewEquation = (latex: string) => {
-    if (!editorRef.current) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    // CRITICAL: restore caret before insert
+    restoreSelectionBookmark();
 
     const encoded = latex
       .replace(/&/g, "&amp;")
@@ -141,11 +183,23 @@ export default function PageEditorPage() {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
 
-    const html = `<span class="canvas-equation" data-latex="${encoded}"></span>&nbsp;`;
+    // Keep it inline, and include a trailing nbsp so typing continues naturally
+    const html = `<span class="canvas-equation" data-latex="${encoded}" contenteditable="false">&#8203;</span>&nbsp;`;
 
-    editorRef.current.insertContent(html);
-    renderAllEquations(editorRef.current);
-    setContent(editorRef.current.getContent());
+    // Make it a single undo step
+    if (editor.undoManager?.transact) {
+      editor.undoManager.transact(() => {
+        editor.insertContent(html);
+      });
+    } else {
+      editor.insertContent(html);
+    }
+
+    renderAllEquations(editor);
+    setContent(editor.getContent());
+
+    // clear after use
+    selectionBookmarkRef.current = null;
   };
 
   const updateExistingEquation = (equationEl: HTMLElement, latex: string) => {
@@ -156,7 +210,7 @@ export default function PageEditorPage() {
       .replace(/>/g, "&gt;");
 
     equationEl.setAttribute("data-latex", encoded);
-    // Re-render just this element
+
     try {
       katex.render(latex, equationEl, {
         throwOnError: false,
@@ -166,10 +220,8 @@ export default function PageEditorPage() {
       equationEl.textContent = latex;
     }
 
-    // Ensure it remains non-editable
     equationEl.setAttribute("contenteditable", "false");
 
-    // Sync React state from editor HTML
     if (editorRef.current) {
       setContent(editorRef.current.getContent());
     }
@@ -180,6 +232,7 @@ export default function PageEditorPage() {
     const editingEl = editingEquationElRef.current;
 
     if (editingEl) {
+      // For edit, we don’t need caret restoration; we update the existing node.
       updateExistingEquation(editingEl, latex);
     } else {
       insertNewEquation(latex);
@@ -187,7 +240,10 @@ export default function PageEditorPage() {
 
     // reset
     editingEquationElRef.current = null;
+    selectionBookmarkRef.current = null;
     setShowEquationModal(false);
+
+    console.log("insert latex:", latex, "editor exists:", !!editorRef.current);
   };
 
   return (
@@ -240,6 +296,9 @@ export default function PageEditorPage() {
                 init={{
                   height: 500,
                   menubar: true,
+                  extended_valid_elements:
+                    "span[class|data-latex|contenteditable]",
+                  custom_elements: "span",
                   plugins:
                     "preview searchreplace autolink directionality visualblocks visualchars fullscreen image link media template codesample table charmap hr pagebreak nonbreaking anchor lists wordcount help",
                   toolbar:
@@ -258,23 +317,23 @@ export default function PageEditorPage() {
                     "body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size:14px; } " +
                     ".canvas-equation { display:inline-block; margin:0 2px; vertical-align:middle; cursor:pointer; padding:2px 3px; border-radius:4px; } " +
                     ".canvas-equation:hover { background: rgba(0, 142, 226, 0.10); } " +
-                    ".canvas-equation.is-selected { outline: 2px solid rgba(0, 142, 226, 0.35); outline-offset: 1px; }",
+                    ".canvas-equation.is-selected { outline: 2px solid rgba(0, 142, 226, 0.35); outline-offset: 1px; }" +
+                    ".canvas-equation * { pointer-events: none; }",
                   branding: false,
                   statusbar: true,
                   setup: (editor: any) => {
                     const render = () => renderAllEquations(editor);
-
                     editor.on("SetContent", render);
+                    editor.on("NodeChange", () => renderAllEquations(editor));
+                    editor.on("Change", () => renderAllEquations(editor));
 
-                    // Toolbar button: insert equation
                     editor.ui.registry.addButton("equationEditor", {
                       text: "Equation",
                       tooltip: "Insert math equation",
                       onAction: () => openEquationInsert(),
                     });
 
-                    // Click/Double-click on equation => edit
-                    editor.on("DblClick", (e: any) => {
+                    editor.on("dblclick", (e: any) => {
                       const target = e?.target as HTMLElement | null;
                       if (!target) return;
 
@@ -283,34 +342,29 @@ export default function PageEditorPage() {
                       ) as HTMLElement | null;
                       if (!eq) return;
 
-                      // Prevent TinyMCE weird selection behavior
                       e.preventDefault?.();
                       e.stopPropagation?.();
 
                       openEquationEdit(eq);
                     });
 
-                    // Optional: show selection highlight on single click
-                    editor.on("Click", (e: any) => {
+                    editor.on("click", (e: any) => {
                       const body = editor.getBody();
                       if (!body) return;
 
-                      // clear old selection highlight
                       body
                         .querySelectorAll(".canvas-equation.is-selected")
-                        .forEach((n: { classList: { remove: (arg0: string) => any; }; }) => n.classList.remove("is-selected"));
+                        .forEach((n: any) => n.classList.remove("is-selected"));
 
                       const target = e?.target as HTMLElement | null;
                       if (!target) return;
+
                       const eq = target.closest?.(
                         ".canvas-equation"
                       ) as HTMLElement | null;
-                      if (eq) {
-                        eq.classList.add("is-selected");
-                      }
+                      if (eq) eq.classList.add("is-selected");
                     });
 
-                    // Context menu option (right click) - nice UX
                     editor.ui.registry.addContextMenu("equationMenu", {
                       update: (element: HTMLElement) => {
                         const eq = element.closest?.(".canvas-equation");
@@ -348,7 +402,15 @@ export default function PageEditorPage() {
         onInsert={handleEquationModalInsert}
         onClose={() => {
           editingEquationElRef.current = null;
+          selectionBookmarkRef.current = null;
           setShowEquationModal(false);
+
+          // Nice UX: return focus to editor
+          try {
+            editorRef.current?.focus?.();
+          } catch {
+            // ignore
+          }
         }}
       />
     </div>

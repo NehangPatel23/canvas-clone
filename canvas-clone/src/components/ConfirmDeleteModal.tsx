@@ -1,46 +1,47 @@
-import ReactDOM from "react-dom";
+import CanvasModal from "./CanvasModal";
 
-interface ConfirmDeleteModalProps {
+type Props = {
+  isOpen: boolean;
   title: string;
-  message: string;
-  onCancel: () => void;
+  description?: string;
+  confirmText?: string;
+  onClose: () => void;
   onConfirm: () => void;
-}
+};
 
-export default function ConfirmDeleteModal({
+export default function ConfirmDeleteItemModal({
+  isOpen,
   title,
-  message,
-  onCancel,
+  description,
+  confirmText = "Delete",
+  onClose,
   onConfirm,
-}: ConfirmDeleteModalProps) {
-  const modalRoot = document.getElementById("modal-root");
-  if (!modalRoot) return null;
+}: Props) {
+  if (!isOpen) return null;
 
-  return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn">
-      {/* Modal box */}
-      <div className="bg-white text-gray-800 rounded-lg shadow-xl w-[360px] max-w-[90%] animate-scaleIn border border-gray-200">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-          <p className="text-gray-600 mt-2 mb-6">{message}</p>
+  return (
+    <CanvasModal title={title} onClose={onClose} size="md">
+      <div className="space-y-4">
+        {description && <p className="text-sm text-gray-600">{description}</p>}
 
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={onCancel}
-              className="px-4 py-2 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-100 text-gray-700 transition"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={onConfirm}
-              className="px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 shadow-sm transition"
-            >
-              Delete
-            </button>
-          </div>
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium rounded-md border border-gray-300 text-[#2D3B45] bg-white hover:bg-gray-100 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+            className="px-4 py-2 text-sm font-medium rounded-md bg-red-600 text-white hover:bg-red-700 transition-all"
+          >
+            {confirmText}
+          </button>
         </div>
       </div>
-    </div>,
-    modalRoot
+    </CanvasModal>
   );
 }

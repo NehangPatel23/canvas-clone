@@ -5,6 +5,8 @@ export default function CourseSidebar() {
   const { courseId } = useParams();
   const location = useLocation();
 
+  if (!courseId) return null;
+
   const base = `/courses/${courseId}`;
   const items = [
     { label: "Home", icon: Home, path: `${base}` },
@@ -35,7 +37,6 @@ export default function CourseSidebar() {
                 : "text-gray-600 hover:bg-gray-50 hover:text-gray-800"
             }`}
           >
-            {/* Active blue bar */}
             <div
               className={`absolute left-0 top-0 h-full w-[3px] rounded-r-md transition-all ${
                 isActive
@@ -44,7 +45,6 @@ export default function CourseSidebar() {
               }`}
             />
 
-            {/* Icon */}
             <Icon
               className={`w-5 h-5 ${
                 isActive
@@ -54,7 +54,6 @@ export default function CourseSidebar() {
             />
             {label}
 
-            {/* Tooltip */}
             <div className="absolute left-[100%] ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-white text-[#2D3B45] text-xs rounded shadow-lg opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 pointer-events-none transition-all duration-200 ease-out whitespace-nowrap z-50">
               {label}
             </div>

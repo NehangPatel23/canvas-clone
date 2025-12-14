@@ -6,6 +6,14 @@ import AddModuleModal from "../components/AddModuleModal";
 import { Plus, GripVertical } from "lucide-react";
 
 import {
+  loadFilesMeta,
+  replaceModuleTitleInAllFiles,
+  addModuleRefToFile,
+  removeModuleRefFromFile,
+  mergeModuleRefsIntoFilesMeta,
+} from "../utils/files";
+
+import {
   DndContext,
   closestCenter,
   useSensor,
@@ -25,24 +33,18 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-type Item = {
-  type: string;
-  label: string;
-  url?: string;
-  pageId?: string; // 🔒 stable page identifier
-};
-
-type ModuleT = { title: string; items: Item[] };
+import {
+  slugifyLabel,
+  loadModulesFromStorage,
+  saveModulesToStorage,
+  type Item,
+  type ModuleT,
+} from "../utils/modules";
 
 type IdModule = `module:${string}`;
 type IdItem = `item:${string}:${string}`;
 type IdContainer = `container:${string}`;
 type AnyId = IdModule | IdItem | IdContainer;
-
-const MODULES_STORAGE_KEY = "canvasClone:modules";
-
-const slugifyLabel = (label: string) =>
-  encodeURIComponent(label.toLowerCase().trim().replace(/\s+/g, "-"));
 
 const modId = (title: string): IdModule => `module:${title}`;
 const itemId = (moduleTitle: string, label: string): IdItem =>
@@ -77,42 +79,13 @@ const transitionStyle = {
     "transform 250ms cubic-bezier(0.22, 1, 0.36, 1), opacity 150ms ease",
 };
 
-// Default modules (used on very first load)
-const DEFAULT_MODULES: ModuleT[] = [
-  {
-    title: "Week 1 – Introduction",
-    items: [
-      {
-        type: "page",
-        label: "Course Overview",
-        pageId: "course-overview", // 👈 stable ID
-      },
-      { type: "file", label: "Syllabus.pdf" },
-    ],
-  },
-  {
-    title: "Week 2 – Algorithms and Complexity",
-    items: [
-      {
-        type: "page",
-        label: "Lecture Slides",
-        pageId: "lecture-slides",
-      },
-      { type: "file", label: "ExampleProblems.docx" },
-      {
-        type: "link",
-        label: "Supplementary Reading",
-        url: "https://example.com",
-      },
-    ],
-  },
-];
-
 function DraggableModuleShell(props: {
   id: IdModule;
   title: string;
   items: Item[];
   fadeOut: boolean;
+  courseId?: string;
+
   onAddItem: (moduleTitle: string, newItem: Item) => void;
   onEditItem: (moduleTitle: string, oldLabel: string, newLabel: string) => void;
   onEditItemFull: (
@@ -121,8 +94,10 @@ function DraggableModuleShell(props: {
     updatedItem: Item
   ) => void;
   onDeleteItem: (moduleTitle: string, labelToRemove: string) => void;
+
   onEditModule: (oldTitle: string, newTitle: string) => void;
   onDeleteModule: (titleToDelete: string) => void;
+
   getItemId: (label: string) => IdItem;
   getContainerId: () => IdContainer;
 
@@ -130,6 +105,7 @@ function DraggableModuleShell(props: {
   moduleIsHighlighted: boolean;
 
   onOpenPageItem: (label: string, pageId?: string) => void;
+  onOpenFileItem: (label: string, fileId?: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useSortable({ id: props.id });
@@ -177,6 +153,8 @@ function DraggableModuleShell(props: {
           dropIndex={props.dropIndex}
           moduleIsHighlighted={props.moduleIsHighlighted}
           onOpenPageItem={props.onOpenPageItem}
+          onOpenFileItem={props.onOpenFileItem}
+          courseId={props.courseId}
         />
       </div>
     </div>
@@ -187,27 +165,9 @@ export default function ModulesPage() {
   const navigate = useNavigate();
   const { courseId } = useParams();
 
-  // 🔁 Initialize modules from localStorage (if present), else from defaults.
-  const [modules, setModules] = useState<ModuleT[]>(() => {
-    try {
-      const raw = window.localStorage.getItem(MODULES_STORAGE_KEY);
-      if (!raw) return DEFAULT_MODULES;
-
-      const parsed = JSON.parse(raw) as ModuleT[];
-
-      // Ensure any page items have a stable pageId
-      return parsed.map((m) => ({
-        ...m,
-        items: m.items.map((it) =>
-          it.type === "page"
-            ? { ...it, pageId: it.pageId ?? slugifyLabel(it.label) }
-            : it
-        ),
-      }));
-    } catch {
-      return DEFAULT_MODULES;
-    }
-  });
+  const [modules, setModules] = useState<ModuleT[]>(() =>
+    loadModulesFromStorage()
+  );
 
   const [fadingModules, setFadingModules] = useState<Set<string>>(new Set());
   const [showAddModuleModal, setShowAddModuleModal] = useState(false);
@@ -215,10 +175,7 @@ export default function ModulesPage() {
   const [dropIndicator, setDropIndicator] = useState<{
     moduleTitle: string | null;
     index: number | null;
-  }>({
-    moduleTitle: null,
-    index: null,
-  });
+  }>({ moduleTitle: null, index: null });
   const [highlightModuleTitle, setHighlightModuleTitle] = useState<
     string | null
   >(null);
@@ -227,14 +184,29 @@ export default function ModulesPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  // 💾 Persist modules whenever they change
   useEffect(() => {
-    try {
-      window.localStorage.setItem(MODULES_STORAGE_KEY, JSON.stringify(modules));
-    } catch (err) {
-      console.error("Failed to save modules to localStorage", err);
-    }
+    saveModulesToStorage(modules);
   }, [modules]);
+
+  // Non-destructive: recompute refs and merge into existing Files metas
+  useEffect(() => {
+    const cid = courseId;
+    if (!cid) return;
+
+    const refMap = new Map<string, Set<string>>();
+    for (const m of modules) {
+      for (const it of m.items as any[]) {
+        if (it?.type === "file" && it.fileId) {
+          if (!refMap.has(it.fileId)) refMap.set(it.fileId, new Set());
+          refMap.get(it.fileId)!.add(m.title);
+        }
+      }
+    }
+
+    // Only touches moduleTitles; never deletes file metas
+    mergeModuleRefsIntoFilesMeta(cid, refMap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modules, courseId]);
 
   const handleAddModule = (newModuleTitle: string) => {
     setModules((prev) => [...prev, { title: newModuleTitle, items: [] }]);
@@ -242,20 +214,43 @@ export default function ModulesPage() {
   };
 
   const handleOpenPageItem = (label: string, pageId?: string) => {
-    if (!courseId) return;
+    const cid = courseId;
+    if (!cid) return;
     const finalPageId = pageId ?? slugifyLabel(label);
-    navigate(`/courses/${courseId}/pages/${finalPageId}`);
+    navigate(`/courses/${cid}/pages/${finalPageId}`);
+  };
+
+  const handleOpenFileItem = (_label: string, fileId?: string) => {
+    const cid = courseId;
+    if (!cid || !fileId) return;
+    navigate(`/courses/${cid}/files/${fileId}`);
   };
 
   const handleEditModule = (oldTitle: string, newTitle: string) => {
     setModules((prev) =>
       prev.map((m) => (m.title === oldTitle ? { ...m, title: newTitle } : m))
     );
+
+    const cid = courseId;
+    if (cid) {
+      replaceModuleTitleInAllFiles(cid, oldTitle, newTitle);
+    }
   };
 
   const handleDeleteModule = (title: string) => {
     setFadingModules((prev) => new Set([...prev, title]));
     setTimeout(() => {
+      // Remove module refs from files for any file items in this module
+      const cid = courseId;
+      if (cid) {
+        const mod = modules.find((m) => m.title === title);
+        for (const it of (mod?.items ?? []) as any[]) {
+          if (it?.type === "file" && it.fileId) {
+            removeModuleRefFromFile(cid, it.fileId, title);
+          }
+        }
+      }
+
       setModules((prev) => prev.filter((m) => m.title !== title));
       setFadingModules((prev) => {
         const next = new Set(prev);
@@ -270,6 +265,11 @@ export default function ModulesPage() {
       newItem.type === "page"
         ? { ...newItem, pageId: slugifyLabel(newItem.label) }
         : newItem;
+
+    const cid = courseId;
+    if (cid && itemToAdd.type === "file" && (itemToAdd as any).fileId) {
+      addModuleRefToFile(cid, (itemToAdd as any).fileId, moduleTitle);
+    }
 
     setModules((prev) =>
       prev.map((m) =>
@@ -302,6 +302,8 @@ export default function ModulesPage() {
     oldLabel: string,
     updatedItem: Item
   ) => {
+    const cid = courseId;
+
     setModules((prev) =>
       prev.map((m) =>
         m.title === moduleTitle
@@ -310,23 +312,38 @@ export default function ModulesPage() {
               items: m.items.map((it) => {
                 if (it.label !== oldLabel) return it;
 
-                // Preserve existing pageId for page items
+                const prevFileId =
+                  it.type === "file" ? (it as any).fileId : undefined;
+                const nextFileId =
+                  updatedItem.type === "file"
+                    ? (updatedItem as any).fileId
+                    : undefined;
+
                 let next: Item = {
                   ...it,
                   label: updatedItem.label,
                   type: updatedItem.type,
                   url: updatedItem.url,
+                  fileId: (updatedItem as any).fileId,
+                  fileName: (updatedItem as any).fileName,
                 };
 
                 if (it.type === "page" && updatedItem.type === "page") {
-                  // keep old pageId
                   next.pageId = it.pageId ?? slugifyLabel(it.label);
                 } else if (it.type !== "page" && updatedItem.type === "page") {
-                  // newly became a page
                   next.pageId = slugifyLabel(updatedItem.label);
                 } else if (updatedItem.type !== "page") {
-                  // not a page anymore
                   delete next.pageId;
+                }
+
+                // File ref bookkeeping
+                if (cid) {
+                  if (prevFileId && prevFileId !== nextFileId) {
+                    removeModuleRefFromFile(cid, prevFileId, moduleTitle);
+                  }
+                  if (nextFileId) {
+                    addModuleRefToFile(cid, nextFileId, moduleTitle);
+                  }
                 }
 
                 return next;
@@ -338,13 +355,29 @@ export default function ModulesPage() {
   };
 
   const handleDeleteItemInModule = (moduleTitle: string, label: string) => {
-    setModules((prev) =>
-      prev.map((m) =>
+    const cid = courseId;
+
+    setModules((prev) => {
+      const module = prev.find((m) => m.title === moduleTitle);
+      const itemToRemove = module?.items.find((it) => it.label === label);
+
+      const next = prev.map((m) =>
         m.title === moduleTitle
           ? { ...m, items: m.items.filter((it) => it.label !== label) }
           : m
-      )
-    );
+      );
+
+      if (
+        cid &&
+        itemToRemove &&
+        itemToRemove.type === "file" &&
+        (itemToRemove as any).fileId
+      ) {
+        removeModuleRefFromFile(cid, (itemToRemove as any).fileId, moduleTitle);
+      }
+
+      return next;
+    });
   };
 
   const activeMeta = useMemo(() => {
@@ -394,6 +427,7 @@ export default function ModulesPage() {
         const clientY = (event.activatorEvent as MouseEvent)?.clientY ?? midY;
         const insertBefore = clientY < midY;
         const modTitle = b.moduleTitle;
+
         const overModule = modules.find((m) => m.title === modTitle);
         if (!overModule) return;
 
@@ -437,6 +471,8 @@ export default function ModulesPage() {
     }
 
     if (a.kind === "item" && (b.kind === "item" || b.kind === "container")) {
+      const cid = courseId;
+
       setModules((prev) => {
         const fromIdx = prev.findIndex((m) => m.title === a.moduleTitle);
         const toIdx = prev.findIndex((m) => m.title === b.moduleTitle);
@@ -464,6 +500,12 @@ export default function ModulesPage() {
 
         const [moving] = source.splice(oldIndex, 1);
         const target = [...prev[toIdx].items];
+
+        if (cid && moving?.type === "file" && (moving as any).fileId) {
+          const fileId = (moving as any).fileId as string;
+          removeModuleRefFromFile(cid, fileId, a.moduleTitle);
+          addModuleRefToFile(cid, fileId, b.moduleTitle);
+        }
 
         const insertAt =
           b.kind === "item"
@@ -493,6 +535,7 @@ export default function ModulesPage() {
           <p className="text-gray-600">
             Organize your course content into modules.
           </p>
+
           <div className="h-px bg-gray-200 my-6" />
 
           <div className="flex items-center justify-between pb-3 border-b border-gray-200">
@@ -543,11 +586,13 @@ export default function ModulesPage() {
                   }
                   moduleIsHighlighted={highlightModuleTitle === mod.title}
                   onOpenPageItem={handleOpenPageItem}
+                  onOpenFileItem={handleOpenFileItem}
+                  courseId={courseId}
                 />
               ))}
             </SortableContext>
 
-            <DragOverlay dropAnimation={null}>
+            <DragOverlay dropAnimation={null} adjustScale={false}>
               {activeMeta?.type === "module" && (
                 <div className="rounded-xl bg-white/95 backdrop-blur-sm shadow-[0_10px_28px_rgba(0,0,0,0.28)] ring-2 ring-blue-300/40 p-4 w-[680px]">
                   <div className="text-sm font-semibold text-[#2D3B45] mb-1">
@@ -558,6 +603,7 @@ export default function ModulesPage() {
                   </div>
                 </div>
               )}
+
               {activeMeta?.type === "item" && (
                 <div className="px-6 py-3 rounded-md bg-white/95 backdrop-blur-sm shadow-[0_8px_20px_rgba(0,0,0,0.25)] ring-1 ring-blue-200">
                   <span className="text-gray-700 text-[15px] select-none">

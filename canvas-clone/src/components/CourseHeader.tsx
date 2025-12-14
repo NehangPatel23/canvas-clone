@@ -4,6 +4,8 @@ import { mockCourses } from "../data/mockData";
 
 export default function CourseHeader() {
   const { courseId } = useParams();
+  if (!courseId) return null;
+
   const course = mockCourses.find((c) => String(c.id) === courseId);
   const [isPublished, setIsPublished] = useState(true);
 
@@ -11,7 +13,6 @@ export default function CourseHeader() {
 
   return (
     <div className="bg-white border-b border-canvas-border px-10 py-6 flex items-center justify-between shadow-sm">
-      {/* Left: Course title and metadata */}
       <div>
         <h1 className="text-2xl font-semibold text-canvas-grayDark">
           {course.title}
@@ -21,9 +22,7 @@ export default function CourseHeader() {
         </p>
       </div>
 
-      {/* Right: Publish controls */}
       <div className="flex items-center gap-4">
-        {/* Publish / Unpublish Button */}
         <button
           onClick={() => setIsPublished(!isPublished)}
           className={`px-4 py-1.5 text-sm font-medium rounded-md border transition-all ${
@@ -35,7 +34,6 @@ export default function CourseHeader() {
           {isPublished ? "Unpublish" : "Publish"}
         </button>
 
-        {/* Status Indicator */}
         {isPublished ? (
           <div className="flex items-center gap-2 text-sm font-medium text-canvas-green">
             <span className="w-2.5 h-2.5 rounded-full bg-canvas-green inline-block shadow-sm"></span>
@@ -48,10 +46,8 @@ export default function CourseHeader() {
           </div>
         )}
 
-        {/* Divider */}
         <div className="h-5 w-px bg-gray-300 mx-1"></div>
 
-        {/* Other Buttons */}
         <button className="px-4 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition-all">
           Settings
         </button>

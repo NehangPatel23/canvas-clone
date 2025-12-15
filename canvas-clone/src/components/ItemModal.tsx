@@ -6,7 +6,7 @@ import {
   type StoredFileMeta,
 } from "../utils/files";
 
-type ItemType = "page" | "file" | "link";
+type ItemType = "page" | "file" | "link" | "section";
 
 export type ItemModalValue = {
   type: ItemType;
@@ -108,6 +108,9 @@ export default function ItemModal({
 
     if (type === "link") return isValidUrlLike(url);
 
+    // Section headers have no additional fields.
+    if (type === "section") return true;
+
     if (type === "file") {
       if (!courseId) return false;
 
@@ -140,6 +143,16 @@ export default function ItemModal({
 
   const submit = async () => {
     if (!canSubmit) return;
+
+    // Section headers (module-only visual grouping)
+    if (type === "section") {
+      onSubmit({
+        type: "section",
+        label: label.trim(),
+      });
+      onClose();
+      return;
+    }
 
     if (type === "file") {
       if (!courseId) return;
@@ -270,6 +283,7 @@ export default function ItemModal({
             <option value="page">Page</option>
             <option value="file">File</option>
             <option value="link">External URL</option>
+            <option value="section">Section Header</option>
           </select>
         </div>
 
@@ -282,7 +296,13 @@ export default function ItemModal({
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-[#2D3B45] placeholder-gray-400 focus:ring-1 focus:ring-[#008EE2] focus:border-[#008EE2] outline-none"
-            placeholder={type === "file" ? "File name" : "Item name"}
+            placeholder={
+              type === "file"
+                ? "File name"
+                : type === "section"
+                ? "Section title (e.g., Learning Materials)"
+                : "Item name"
+            }
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
             }}

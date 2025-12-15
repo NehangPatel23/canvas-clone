@@ -43,7 +43,8 @@ import {
 type IdModule = `module:${string}`;
 type IdItem = `item:${string}:${string}`;
 type IdContainer = `container:${string}`;
-type AnyId = IdModule | IdItem | IdContainer;
+type IdPlaceholder = `placeholder:${string}:${string}`;
+type AnyId = IdModule | IdItem | IdContainer | IdPlaceholder;
 
 const modId = (title: string): IdModule => `module:${title}`;
 const itemId = (moduleTitle: string, label: string): IdItem =>
@@ -54,6 +55,7 @@ const containerId = (moduleTitle: string): IdContainer =>
 function parseId(id: string) {
   if (id.startsWith("module:"))
     return { kind: "module" as const, title: id.slice(7) };
+
   if (id.startsWith("item:")) {
     const rest = id.slice(5);
     const i = rest.indexOf(":");
@@ -63,12 +65,24 @@ function parseId(id: string) {
       label: rest.slice(i + 1),
     };
   }
+
   if (id.startsWith("container:"))
     return { kind: "container" as const, moduleTitle: id.slice(10) };
+
+  if (id.startsWith("placeholder:")) {
+    const rest = id.slice(12);
+    const i = rest.indexOf(":");
+    return {
+      kind: "placeholder" as const,
+      moduleTitle: rest.slice(0, i),
+      sectionLabel: rest.slice(i + 1),
+    };
+  }
+
   return { kind: "unknown" as const };
 }
 
-const restrictToVertical: Modifier = ({ transform }) => ({
+const restrictToVertical: Modifier = ({ transform }: any) => ({
   ...transform,
   x: 0,
 });
@@ -77,6 +91,36 @@ const transitionStyle = {
   transition:
     "transform 250ms cubic-bezier(0.22, 1, 0.36, 1), opacity 150ms ease",
 };
+
+function clampIndent(n: unknown) {
+  const v = typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : 0;
+  return Math.max(0, Math.min(3, v));
+}
+
+function findCollapsedInsertIndex(mod: ModuleT, sectionLabel: string) {
+  const i = mod.items.findIndex((it) => it.label === sectionLabel);
+  if (i < 0) return mod.items.length;
+
+  const section = mod.items[i];
+  const sectionIndent = clampIndent(section.indent ?? 0);
+
+  let j = i + 1;
+  while (j < mod.items.length) {
+    const nxt = mod.items[j];
+
+    // Boundary 1: next section header
+    if (nxt.type === "section") break;
+
+    // Boundary 2: outdent encountered
+    const nxtIndent = clampIndent(nxt.indent ?? 0);
+    if (nxtIndent <= sectionIndent) break;
+
+    j += 1;
+  }
+
+  // Insert right at the end boundary (inside collapsed section, before boundary row)
+  return j;
+}
 
 function DraggableModuleShell(props: {
   id: IdModule;
@@ -93,6 +137,10 @@ function DraggableModuleShell(props: {
     updatedItem: Item
   ) => void;
   onDeleteItem: (moduleTitle: string, labelToRemove: string) => void;
+
+  onIndentItem: (moduleTitle: string, label: string) => void;
+  onOutdentItem: (moduleTitle: string, label: string) => void;
+  onToggleSectionCollapsed: (moduleTitle: string, sectionLabel: string) => void;
 
   onEditModule: (oldTitle: string, newTitle: string) => void;
   onDeleteModule: (titleToDelete: string) => void;
@@ -145,6 +193,9 @@ function DraggableModuleShell(props: {
           onEditItem={props.onEditItem}
           onEditItemFull={props.onEditItemFull}
           onDeleteItem={props.onDeleteItem}
+          onIndentItem={props.onIndentItem}
+          onOutdentItem={props.onOutdentItem}
+          onToggleSectionCollapsed={props.onToggleSectionCollapsed}
           onEditModule={props.onEditModule}
           onDeleteModule={props.onDeleteModule}
           getItemId={props.getItemId}
@@ -173,7 +224,7 @@ export default function ModulesPage() {
   const [activeId, setActiveId] = useState<AnyId | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{
     moduleTitle: string | null;
-    index: number | null;
+    index: number | null; // FULL items array index
   }>({ moduleTitle: null, index: null });
   const [highlightModuleTitle, setHighlightModuleTitle] = useState<
     string | null
@@ -187,7 +238,6 @@ export default function ModulesPage() {
     saveModulesToStorage(modules);
   }, [modules]);
 
-  // Non-destructive: recompute refs and merge into existing Files metas
   useEffect(() => {
     const cid = courseId;
     if (!cid) return;
@@ -202,7 +252,6 @@ export default function ModulesPage() {
       }
     }
 
-    // Only touches moduleTitles; never deletes file metas
     mergeModuleRefsIntoFilesMeta(cid, refMap);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modules, courseId]);
@@ -231,15 +280,12 @@ export default function ModulesPage() {
     );
 
     const cid = courseId;
-    if (cid) {
-      replaceModuleTitleInAllFiles(cid, oldTitle, newTitle);
-    }
+    if (cid) replaceModuleTitleInAllFiles(cid, oldTitle, newTitle);
   };
 
   const handleDeleteModule = (title: string) => {
     setFadingModules((prev) => new Set([...prev, title]));
     setTimeout(() => {
-      // Remove module refs from files for any file items in this module
       const cid = courseId;
       if (cid) {
         const mod = modules.find((m) => m.title === title);
@@ -260,10 +306,32 @@ export default function ModulesPage() {
   };
 
   const handleAddItemToModule = (moduleTitle: string, newItem: Item) => {
+    const makeUniqueLabel = (raw: string) => {
+      const base = raw.trim();
+      const mod = modules.find((m) => m.title === moduleTitle);
+      const existing = new Set((mod?.items ?? []).map((it) => it.label));
+      if (!existing.has(base)) return base;
+      let n = 2;
+      while (existing.has(`${base} (${n})`)) n += 1;
+      return `${base} (${n})`;
+    };
+
+    const label = makeUniqueLabel(newItem.label);
+
+    const normalizedIncoming: Item = {
+      ...newItem,
+      label,
+      indent: clampIndent(newItem.indent ?? 0),
+      collapsed: newItem.type === "section" ? !!newItem.collapsed : undefined,
+    };
+
     const itemToAdd: Item =
-      newItem.type === "page"
-        ? { ...newItem, pageId: slugifyLabel(newItem.label) }
-        : newItem;
+      normalizedIncoming.type === "page"
+        ? {
+            ...normalizedIncoming,
+            pageId: slugifyLabel(normalizedIncoming.label),
+          }
+        : normalizedIncoming;
 
     const cid = courseId;
     if (cid && itemToAdd.type === "file" && (itemToAdd as any).fileId) {
@@ -303,53 +371,73 @@ export default function ModulesPage() {
   ) => {
     const cid = courseId;
 
+    const makeUniqueLabelForEdit = (raw: string) => {
+      const base = raw.trim();
+      const mod = modules.find((m) => m.title === moduleTitle);
+      const existing = new Set(
+        (mod?.items ?? [])
+          .filter((it) => it.label !== oldLabel)
+          .map((it) => it.label)
+      );
+      if (!existing.has(base)) return base;
+      let n = 2;
+      while (existing.has(`${base} (${n})`)) n += 1;
+      return `${base} (${n})`;
+    };
+
     setModules((prev) =>
-      prev.map((m) =>
-        m.title === moduleTitle
-          ? {
-              ...m,
-              items: m.items.map((it) => {
-                if (it.label !== oldLabel) return it;
+      prev.map((m) => {
+        if (m.title !== moduleTitle) return m;
 
-                const prevFileId =
-                  it.type === "file" ? (it as any).fileId : undefined;
-                const nextFileId =
-                  updatedItem.type === "file"
-                    ? (updatedItem as any).fileId
-                    : undefined;
+        return {
+          ...m,
+          items: m.items.map((it) => {
+            if (it.label !== oldLabel) return it;
 
-                let next: Item = {
-                  ...it,
-                  label: updatedItem.label,
-                  type: updatedItem.type,
-                  url: updatedItem.url,
-                  fileId: (updatedItem as any).fileId,
-                  fileName: (updatedItem as any).fileName,
-                };
+            const prevFileId =
+              it.type === "file" ? (it as any).fileId : undefined;
+            const nextFileId =
+              updatedItem.type === "file"
+                ? (updatedItem as any).fileId
+                : undefined;
 
-                if (it.type === "page" && updatedItem.type === "page") {
-                  next.pageId = it.pageId ?? slugifyLabel(it.label);
-                } else if (it.type !== "page" && updatedItem.type === "page") {
-                  next.pageId = slugifyLabel(updatedItem.label);
-                } else if (updatedItem.type !== "page") {
-                  delete next.pageId;
-                }
+            const nextLabel = makeUniqueLabelForEdit(updatedItem.label);
 
-                // File ref bookkeeping
-                if (cid) {
-                  if (prevFileId && prevFileId !== nextFileId) {
-                    removeModuleRefFromFile(cid, prevFileId, moduleTitle);
-                  }
-                  if (nextFileId) {
-                    addModuleRefToFile(cid, nextFileId, moduleTitle);
-                  }
-                }
+            let next: Item = {
+              ...it,
+              label: nextLabel,
+              type: updatedItem.type,
+              url: updatedItem.url,
+              fileId: (updatedItem as any).fileId,
+              fileName: (updatedItem as any).fileName,
+              indent: clampIndent(updatedItem.indent ?? it.indent ?? 0),
+              collapsed:
+                updatedItem.type === "section"
+                  ? !!updatedItem.collapsed
+                  : undefined,
+            };
 
-                return next;
-              }),
+            if (it.type === "page" && updatedItem.type === "page") {
+              next.pageId = it.pageId ?? slugifyLabel(it.label);
+            } else if (it.type !== "page" && updatedItem.type === "page") {
+              next.pageId = slugifyLabel(nextLabel);
+            } else if (updatedItem.type !== "page") {
+              delete (next as any).pageId;
             }
-          : m
-      )
+
+            if (cid) {
+              if (prevFileId && prevFileId !== nextFileId) {
+                removeModuleRefFromFile(cid, prevFileId, moduleTitle);
+              }
+              if (nextFileId) {
+                addModuleRefToFile(cid, nextFileId, moduleTitle);
+              }
+            }
+
+            return next;
+          }),
+        };
+      })
     );
   };
 
@@ -377,6 +465,60 @@ export default function ModulesPage() {
 
       return next;
     });
+  };
+
+  const handleIndentItem = (moduleTitle: string, label: string) => {
+    setModules((prev) =>
+      prev.map((m) =>
+        m.title !== moduleTitle
+          ? m
+          : {
+              ...m,
+              items: m.items.map((it) =>
+                it.label === label
+                  ? { ...it, indent: clampIndent((it.indent ?? 0) + 1) }
+                  : it
+              ),
+            }
+      )
+    );
+  };
+
+  const handleOutdentItem = (moduleTitle: string, label: string) => {
+    setModules((prev) =>
+      prev.map((m) =>
+        m.title !== moduleTitle
+          ? m
+          : {
+              ...m,
+              items: m.items.map((it) =>
+                it.label === label
+                  ? { ...it, indent: clampIndent((it.indent ?? 0) - 1) }
+                  : it
+              ),
+            }
+      )
+    );
+  };
+
+  const handleToggleSectionCollapsed = (
+    moduleTitle: string,
+    sectionLabel: string
+  ) => {
+    setModules((prev) =>
+      prev.map((m) =>
+        m.title !== moduleTitle
+          ? m
+          : {
+              ...m,
+              items: m.items.map((it) =>
+                it.label === sectionLabel && it.type === "section"
+                  ? { ...it, collapsed: !it.collapsed }
+                  : it
+              ),
+            }
+      )
+    );
   };
 
   const activeMeta = useMemo(() => {
@@ -417,16 +559,26 @@ export default function ModulesPage() {
     }
 
     if (a.kind === "item") {
+      // Drop “into collapsed section”
+      if (b.kind === "placeholder") {
+        const mod = modules.find((m) => m.title === b.moduleTitle);
+        if (!mod) return;
+
+        const insertIndex = findCollapsedInsertIndex(mod, b.sectionLabel);
+        setDropIndicator({ moduleTitle: b.moduleTitle, index: insertIndex });
+        return;
+      }
+
       if (b.kind === "item") {
         const overElem = document.querySelector(`[data-id='${over.id}']`);
         if (!overElem) return;
 
-        const rect = overElem.getBoundingClientRect();
+        const rect = (overElem as HTMLElement).getBoundingClientRect();
         const midY = rect.top + rect.height / 2;
         const clientY = (event.activatorEvent as MouseEvent)?.clientY ?? midY;
         const insertBefore = clientY < midY;
-        const modTitle = b.moduleTitle;
 
+        const modTitle = b.moduleTitle;
         const overModule = modules.find((m) => m.title === modTitle);
         if (!overModule) return;
 
@@ -466,6 +618,70 @@ export default function ModulesPage() {
         if (from < 0 || to < 0 || from === to) return prev;
         return arrayMove(prev, from, to);
       });
+      return;
+    }
+
+    // Item dragged onto placeholder => treat as insert into that module at computed index
+    if (a.kind === "item" && b.kind === "placeholder") {
+      const cid = courseId;
+
+      setModules((prev) => {
+        const fromIdx = prev.findIndex((m) => m.title === a.moduleTitle);
+        const toIdx = prev.findIndex((m) => m.title === b.moduleTitle);
+        if (fromIdx < 0 || toIdx < 0) return prev;
+
+        const toMod = prev[toIdx];
+        const insertIndex = findCollapsedInsertIndex(toMod, b.sectionLabel);
+
+        // Remove from source
+        const source = [...prev[fromIdx].items];
+        const oldIndex = source.findIndex((it) => it.label === a.label);
+        if (oldIndex < 0) return prev;
+        const [moving] = source.splice(oldIndex, 1);
+
+        // If moving across modules, update file refs
+        if (
+          cid &&
+          fromIdx !== toIdx &&
+          moving?.type === "file" &&
+          (moving as any).fileId
+        ) {
+          const fileId = (moving as any).fileId as string;
+          removeModuleRefFromFile(cid, fileId, a.moduleTitle);
+          addModuleRefToFile(cid, fileId, b.moduleTitle);
+        }
+
+        // Insert into target
+        const target = [...prev[toIdx].items];
+        const safeIndex = Math.max(0, Math.min(target.length, insertIndex));
+        target.splice(safeIndex, 0, moving);
+
+        // If moving within same module, account for index shift when removing before inserting
+        if (fromIdx === toIdx) {
+          const adjustedTarget = [...prev[toIdx].items];
+          const oldIdx2 = adjustedTarget.findIndex(
+            (it) => it.label === a.label
+          );
+          if (oldIdx2 < 0) return prev;
+          const [moving2] = adjustedTarget.splice(oldIdx2, 1);
+
+          // recompute insert index on the “post-removal” array
+          const tempMod: ModuleT = { ...toMod, items: adjustedTarget };
+          const insert2 = findCollapsedInsertIndex(tempMod, b.sectionLabel);
+          const safe2 = Math.max(0, Math.min(adjustedTarget.length, insert2));
+          adjustedTarget.splice(safe2, 0, moving2);
+
+          const nextSame = [...prev];
+          nextSame[toIdx] = { ...nextSame[toIdx], items: adjustedTarget };
+          return nextSame;
+        }
+
+        const next = [...prev];
+        next[fromIdx] = { ...next[fromIdx], items: source };
+        next[toIdx] = { ...next[toIdx], items: target };
+        return next;
+      });
+
       return;
     }
 
@@ -574,6 +790,9 @@ export default function ModulesPage() {
                   onEditItem={handleEditItemInModule}
                   onEditItemFull={handleEditItemInModuleFull}
                   onDeleteItem={handleDeleteItemInModule}
+                  onIndentItem={handleIndentItem}
+                  onOutdentItem={handleOutdentItem}
+                  onToggleSectionCollapsed={handleToggleSectionCollapsed}
                   onEditModule={handleEditModule}
                   onDeleteModule={handleDeleteModule}
                   getItemId={(label) => itemId(mod.title, label)}

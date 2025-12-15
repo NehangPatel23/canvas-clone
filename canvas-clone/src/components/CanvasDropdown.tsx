@@ -1,13 +1,25 @@
-import { useEffect, useState, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+
+export type CanvasDropdownEntry =
+  | {
+      type?: "item";
+      label: string;
+      onClick: () => void;
+      variant?: "danger";
+      disabled?: boolean;
+    }
+  | {
+      type: "separator";
+    };
 
 interface CanvasDropdownProps {
-  anchorRef?: RefObject<HTMLElement | null>; // ✅ fully safe and null-tolerant
+  anchorRef?: RefObject<HTMLElement | null>;
   position?: { x: number; y: number };
-  items: { label: string; onClick: () => void; variant?: "danger" }[];
+  items: CanvasDropdownEntry[];
   onClose: () => void;
 }
 
-export default function CanvasDropdown({
+function CanvasDropdown({
   anchorRef,
   position,
   items,
@@ -16,26 +28,36 @@ export default function CanvasDropdown({
   const [closing, setClosing] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Compute position (auto flip upward if near bottom)
+  const estimatedMenuHeight = useMemo(() => {
+    const ITEM_H = 38;
+    const SEP_H = 10;
+    const PADDING = 16;
+
+    return (
+      items.reduce(
+        (sum, it) => sum + (it.type === "separator" ? SEP_H : ITEM_H),
+        0
+      ) + PADDING
+    );
+  }, [items]);
+
   function computePosition() {
     const rect = anchorRef?.current?.getBoundingClientRect();
-    const MENU_HEIGHT = items.length * 38 + 16;
     const GAP = 6;
 
     const bottomY = rect ? rect.bottom + window.scrollY : position?.y ?? 0;
     const rightX = rect ? rect.right : position?.x ?? 0;
     const spaceBelow = window.innerHeight - bottomY;
-    const openUp = spaceBelow < MENU_HEIGHT;
+    const openUp = spaceBelow < estimatedMenuHeight;
 
     return {
-      top: openUp ? bottomY - MENU_HEIGHT - GAP : bottomY + GAP,
+      top: openUp ? bottomY - estimatedMenuHeight - GAP : bottomY + GAP,
       left: rightX - 160,
     };
   }
 
   const { top, left } = computePosition();
 
-  // Close when clicking outside
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -44,6 +66,7 @@ export default function CanvasDropdown({
     };
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleClose() {
@@ -64,22 +87,44 @@ export default function CanvasDropdown({
         isolation: "isolate",
       }}
     >
-      {items.map((it, i) => (
-        <button
-          key={i}
-          onClick={() => {
-            handleClose();
-            setTimeout(it.onClick, 150);
-          }}
-          className={`block w-full text-left px-4 py-2 text-sm bg-white ${
-            it.variant === "danger"
-              ? "text-red-600 hover:bg-red-50"
-              : "text-gray-700 hover:bg-gray-100"
-          } transition-colors`}
-        >
-          {it.label}
-        </button>
-      ))}
+      {items.map((it, i) => {
+        if (it.type === "separator") {
+          return (
+            <div
+              key={`sep-${i}`}
+              className="my-1 mx-2 border-t border-gray-200"
+              aria-hidden="true"
+            />
+          );
+        }
+
+        const disabled = !!it.disabled;
+        const base =
+          it.variant === "danger"
+            ? "text-red-600 hover:bg-red-50"
+            : "text-gray-700 hover:bg-gray-100";
+        const disabledCls = disabled
+          ? "opacity-50 cursor-not-allowed hover:bg-white"
+          : "cursor-pointer";
+
+        return (
+          <button
+            key={`item-${i}`}
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              if (disabled) return;
+              handleClose();
+              setTimeout(it.onClick, 150);
+            }}
+            className={`block w-full text-left px-4 py-2 text-sm bg-white ${base} ${disabledCls} transition-colors`}
+          >
+            {it.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
+
+export default CanvasDropdown;
